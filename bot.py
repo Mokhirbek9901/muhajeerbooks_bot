@@ -858,13 +858,13 @@ def handle_message(message):
 
     if text == "🛒 Savatcha":
 
-        send(
-            chat_id,
-            cart_text(chat_id),
-            main_menu(chat_id)
-        )
+    send(
+        chat_id,
+        cart_text(chat_id),
+        cart_keyboard(chat_id)
+    )
 
-        return
+    return
 
     # -------------------------
     # ZAKAZ BOSHLASH
