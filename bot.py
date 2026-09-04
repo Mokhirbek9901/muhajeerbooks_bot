@@ -332,21 +332,37 @@ def best_sellers_keyboard(limit=10):
 
 
 def order_receipt_text(order):
-    lines=["🧾 BUYURTMA CHEKI","",f"🔢 Buyurtma №{order.get('order_id')}",f"👤 {order.get('name','')}",f"📱 {order.get('phone','')}",f"📍 {order.get('address','')}",""]
-    total=0
-    for bid,qty in order.get("cart",{}).items():
-        book=find_book(bid)
-        if not book: continue
-        subtotal=effective_price(book)*int(qty); total+=subtotal
-        lines.append(f"📖 {book['name']} × {qty} — ₩{subtotal:,}")
-    delivery=int(order.get("delivery_fee",DELIVERY_FEE)); discount=int(order.get("discount",0)); grand=int(order.get("grand_total",total+delivery-discount))
-    lines += ["",f"💰 Kitoblar: ₩{total:,}",f"🚚 Yetkazib berish: ₩{delivery:,}"]
-    if discount: lines.append(f"🎁 Chegirma: ₩{discount:,}")
-    lines += [f"💵 JAMI: ₩{grand:,}","",f"Holati: {status_name(order.get('status'))}"]
+    lines = ["🧾 BUYURTMA CHEKI", "", f"🔢 Buyurtma №{order.get('order_id')}",
+             f"👤 {order.get('name', '')}", f"📱 {order.get('phone', '')}",
+             f"📍 {order.get('address', '')}", ""]
+    total = 0
+    saved_items = order.get("items")
+    if isinstance(saved_items, list) and saved_items:
+        for item in saved_items:
+            name = str(item.get("name", "Kitob"))
+            qty = int(item.get("qty", 0))
+            unit_price = int(item.get("unit_price", 0))
+            subtotal = unit_price * qty
+            total += subtotal
+            lines.append(f"📖 {name} × {qty} — ₩{subtotal:,}")
+        total = int(order.get("total", total))
+    else:
+        for bid, qty in order.get("cart", {}).items():
+            book = find_book(bid)
+            if not book:
+                continue
+            qty = int(qty)
+            subtotal = effective_price(book) * qty
+            total += subtotal
+            lines.append(f"📖 {book['name']} × {qty} — ₩{subtotal:,}")
+    delivery = int(order.get("delivery_fee", DELIVERY_FEE))
+    discount = int(order.get("discount", 0))
+    grand = int(order.get("grand_total", total + delivery - discount))
+    lines += ["", f"💰 Kitoblar: ₩{total:,}", f"🚚 Yetkazib berish: ₩{delivery:,}"]
+    if discount:
+        lines.append(f"🎁 Chegirma: ₩{discount:,}")
+    lines += [f"💵 JAMI: ₩{grand:,}", "", f"Holati: {status_name(order.get('status'))}"]
     return "\n".join(lines)
-
-
-
 
 
 def status_name(status):
@@ -763,7 +779,7 @@ def calculate_cart(chat_id):
 
 
 
-def order_preview_text(state):
+def order_preview_text(state, show_payment_info=True):
     lines=[]; total=0
     for book_id,qty in state.get("cart",{}).items():
         book=find_book(book_id)
@@ -771,7 +787,14 @@ def order_preview_text(state):
         subtotal=effective_price(book)*int(qty); total+=subtotal
         lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
     grand_total=total+DELIVERY_FEE
-    text=("🧾 BUYURTMANGIZ\n\n"+"\n".join(lines)+f"\n\n💰 Kitoblar: ₩{total:,}"+f"\n🚚 택배 +₩{DELIVERY_FEE:,}"+f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}\n\n"+"💳 TO‘LOV MA‘LUMOTLARI\n"+f"💳 Karta raqami: {CARD_NUMBER}\n"+f"🏦 {BANK_NAME}\n"+f"👤 {CARD_OWNER}\n\n"+"⚠️ Iltimos, jami summani yuqoridagi karta raqamiga o‘tkazing.\n\n"+"To‘lovni amalga oshirgach, «💳 To‘lov qildim» tugmasini bosing.")
+    text=("🧾 BUYURTMANGIZ\n\n"+"\n".join(lines)+f"\n\n💰 Kitoblar: ₩{total:,}"+f"\n🚚 택배 +₩{DELIVERY_FEE:,}"+f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}")
+    if show_payment_info:
+        text += ("\n\n💳 TO‘LOV MA‘LUMOTLARI\n"
+                 f"💳 Karta raqami: {CARD_NUMBER}\n"
+                 f"🏦 {BANK_NAME}\n"
+                 f"👤 {CARD_OWNER}\n\n"
+                 "⚠️ Iltimos, jami summani yuqoridagi karta raqamiga o‘tkazing.\n\n"
+                 "To‘lovni amalga oshirgach, «💳 To‘lov qildim» tugmasini bosing.")
     return text,total,grand_total
 
 
@@ -881,21 +904,26 @@ def rating_keyboard(order_id, book_id):
     ]}
 
 
-def admin_orders_text():
+ORDER_STATUS_NAMES = {
+    "pending": "🟡 Kutilmoqda", "paid": "🟢 To‘langan",
+    "shipped": "🚚 Jo‘natilgan", "delivered": "✅ Yetkazilgan",
+    "cancelled": "❌ Bekor qilingan", "stock_problem": "⚠️ Ombor muammosi"
+}
+
+def admin_order_counts():
+    return {status: sum(1 for o in orders.values() if o.get("status") == status) for status in ORDER_STATUS_NAMES}
+
+def admin_orders_text(status_filter="all"):
     if not orders:
         return "📦 Hozircha buyurtmalar yo‘q."
-    status_names = {
-        "pending": "🟡 Kutilmoqda", "paid": "🟢 To‘langan",
-        "shipped": "🚚 Jo‘natilgan", "delivered": "✅ Yetkazilgan",
-        "cancelled": "❌ Bekor", "stock_problem": "⚠️ Ombor muammosi"
-    }
-    lines = ["📦 BUYURTMALAR\n"]
-    for o in sorted(orders.values(), key=lambda x: int(x.get("order_id", 0)), reverse=True)[:30]:
-        lines.append(
-            f"№{o.get('order_id')} | {o.get('name', 'Noma’lum')} | "
-            f"₩{int(o.get('grand_total', 0)):,} | "
-            f"{status_names.get(o.get('status'), o.get('status'))}"
-        )
+    selected = [o for o in orders.values() if status_filter == "all" or o.get("status") == status_filter]
+    selected.sort(key=lambda x: int(x.get("order_id", 0)), reverse=True)
+    title = "📦 BARCHA BUYURTMALAR" if status_filter == "all" else f"📦 {ORDER_STATUS_NAMES.get(status_filter, status_filter).upper()}"
+    lines = [f"{title} — {len(selected)} ta", ""]
+    for o in selected[:30]:
+        lines.append(f"№{o.get('order_id')} | {o.get('name', 'Noma’lum')} | ₩{int(o.get('grand_total', 0)):,} | {ORDER_STATUS_NAMES.get(o.get('status'), o.get('status'))}")
+    if not selected:
+        lines.append("Bu statusda buyurtma yo‘q.")
     return "\n".join(lines)
 
 
@@ -996,11 +1024,22 @@ def admin_report_text(period="all"):
 
     return "\n".join(lines)
 
-def admin_orders_keyboard():
-    buttons=[]
-    for o in sorted(orders.values(), key=lambda x:int(x.get("order_id",0)), reverse=True)[:30]:
+def admin_orders_keyboard(status_filter="all"):
+    counts = admin_order_counts()
+    buttons = [
+        [{"text": f"🟡 Kutilmoqda ({counts['pending']})", "callback_data": "adminorders_pending"}],
+        [{"text": f"🟢 To‘langan ({counts['paid']})", "callback_data": "adminorders_paid"}],
+        [{"text": f"🚚 Jo‘natilgan ({counts['shipped']})", "callback_data": "adminorders_shipped"}],
+        [{"text": f"✅ Yetkazilgan ({counts['delivered']})", "callback_data": "adminorders_delivered"}],
+        [{"text": f"❌ Bekor qilingan ({counts['cancelled']})", "callback_data": "adminorders_cancelled"}],
+        [{"text": f"⚠️ Ombor muammosi ({counts['stock_problem']})", "callback_data": "adminorders_stock_problem"}],
+        [{"text": f"📦 Hammasi ({len(orders)})", "callback_data": "adminorders_all"}],
+    ]
+    selected = [o for o in orders.values() if status_filter == "all" or o.get("status") == status_filter]
+    selected.sort(key=lambda x: int(x.get("order_id", 0)), reverse=True)
+    for o in selected[:30]:
         buttons.append([{"text": f"№{o.get('order_id')} — {status_name(o.get('status'))}", "callback_data": f"adminorder_{o.get('order_id')}"}])
-    buttons.append([{ "text":"⬅️ Admin panel", "callback_data":"admin" }])
+    buttons.append([{"text": "⬅️ Admin panel", "callback_data": "admin"}])
     return {"inline_keyboard": buttons}
 
 
@@ -1058,6 +1097,12 @@ def finalize_order(chat_id):
         time.sleep(0.001)
         order_id = str(int(time.time() * 1000))
 
+    saved_items = []
+    for book_id, qty in cart.items():
+        book = find_book(book_id)
+        if book:
+            saved_items.append({"book_id": str(book_id), "name": str(book.get("name", "Kitob")), "qty": int(qty), "unit_price": int(effective_price(book))})
+
     order = {
         "order_id": order_id,
         "chat_id": chat_id,
@@ -1066,6 +1111,7 @@ def finalize_order(chat_id):
         "phone": state.get("phone", ""),
         "address": state.get("address", ""),
         "cart": {str(k): int(v) for k, v in cart.items()},
+        "items": saved_items,
         "total": int(total),
         "delivery_fee": int(DELIVERY_FEE),
         "grand_total": int(grand_total),
@@ -1196,7 +1242,7 @@ def handle_message(message):
 
         if text == "📦 Buyurtmalar":
             states.pop(chat_id, None)
-            send(chat_id, admin_orders_text(), admin_orders_keyboard())
+            send(chat_id, admin_orders_text("all"), admin_orders_keyboard("all"))
             return
 
         if text == "📢 Xabar yuborish":
@@ -1294,22 +1340,26 @@ def handle_message(message):
                     send(chat_id, "Bekor qilindi.", admin_menu())
                     return
 
+                message_id = message.get("message_id")
+                if not message_id:
+                    send(chat_id, "❌ Xabarni aniqlab bo‘lmadi.", admin_menu())
+                    return
+
                 sent = 0
                 failed = 0
                 for uid in list(users.keys()):
                     try:
-                        send(int(uid), text)
-                        sent += 1
+                        result = api("copyMessage", {"chat_id": int(uid), "from_chat_id": chat_id, "message_id": int(message_id)})
+                        if result.get("ok"):
+                            sent += 1
+                        else:
+                            failed += 1
                     except Exception as e:
                         failed += 1
                         print("Broadcast xatosi:", uid, e)
 
                 states.pop(chat_id, None)
-                send(
-                    chat_id,
-                    f"📢 Xabar yuborildi.\n\n✅ Yuborildi: {sent}\n❌ Yetkazilmadi: {failed}",
-                    admin_menu()
-                )
+                send(chat_id, f"📢 Xabar yuborildi.\n\n✅ Yuborildi: {sent}\n❌ Yetkazilmadi: {failed}", admin_menu())
                 return
 
             if action == "search":
@@ -1768,7 +1818,10 @@ def handle_message(message):
         action = state["action"]
         key = {"edit_order_name":"name", "edit_order_phone":"phone", "edit_order_address":"address"}[action]
         state[key] = text
-        preview, total, grand = order_preview_text(state)
+        preview, total, grand = order_preview_text(
+            state,
+            show_payment_info=not state.get("payment_declared", False)
+        )
         state["total"], state["grand_total"], state["action"] = total, grand, "order_confirm"
         send(chat_id, preview, order_edit_keyboard(state))
         return
@@ -1886,6 +1939,7 @@ def handle_callback(callback):
         if states.get(chat_id):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
+                states[chat_id]["payment_declared"] = False
 
         try:
             edit_message(
@@ -1937,6 +1991,7 @@ def handle_callback(callback):
         if states.get(chat_id):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
+                states[chat_id]["payment_declared"] = False
 
         try:
             edit_message(
@@ -1968,6 +2023,7 @@ def handle_callback(callback):
         if states.get(chat_id):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
+                states[chat_id]["payment_declared"] = False
 
         try:
             edit_message(
@@ -1991,6 +2047,7 @@ def handle_callback(callback):
         if states.get(chat_id):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = {}
+                states[chat_id]["payment_declared"] = False
 
         try:
             edit_message(
@@ -2012,7 +2069,16 @@ def handle_callback(callback):
 
     if data == "admin_orders":
         if is_admin(chat_id):
-            send(chat_id, admin_orders_text(), admin_orders_keyboard())
+            send(chat_id, admin_orders_text("all"), admin_orders_keyboard("all"))
+        return
+
+    if data.startswith("adminorders_"):
+        if not is_admin(chat_id):
+            return
+        status_filter = data.split("_", 1)[1]
+        if status_filter not in set(ORDER_STATUS_NAMES) | {"all"}:
+            return
+        send(chat_id, admin_orders_text(status_filter), admin_orders_keyboard(status_filter))
         return
 
     # =========================
@@ -2266,12 +2332,12 @@ def handle_callback(callback):
         if not state or state.get("action") != "order_confirm":
             return
         state["payment_declared"] = True
-        preview, total, grand = order_preview_text(state)
+        preview, total, grand = order_preview_text(state, show_payment_info=False)
         state["total"] = total
         state["grand_total"] = grand
         send(chat_id,
-             preview + "\n\n💳 To‘lov qilganingiz belgilandi.\n"
-             "Endi ma’lumotlarni tekshirib «✅ Tasdiqlash» tugmasini bosing.",
+             preview + "\n\n💳 To‘lovingiz belgilandi.\n"
+             "⚠️ Ma’lumotlarni tekshirib, «✅ Tasdiqlash» tugmasini bosing.",
              order_edit_keyboard(state))
         return
 
@@ -2307,7 +2373,10 @@ def handle_callback(callback):
         state = states.get(chat_id)
         if state:
             state["cart"] = dict(carts.get(chat_id, state.get("cart", {})))
-            preview, total, grand = order_preview_text(state)
+            preview, total, grand = order_preview_text(
+                state,
+                show_payment_info=not state.get("payment_declared", False)
+            )
             state["total"], state["grand_total"], state["action"] = total, grand, "order_confirm"
             send(chat_id, preview, order_edit_keyboard(state))
         return
