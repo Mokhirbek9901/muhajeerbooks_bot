@@ -132,19 +132,47 @@ def sync_book_stock_from_disk():
         print("Stock sync xatosi:", e)
 
 
+def refresh_books():
+    """books.json ni har safar qayta o'qib, barcha foydalanuvchilarga eng yangi qoldiqni beradi."""
+    load_books()
+    return books
+
+
 def load_books():
     global books
 
+    file_exists = os.path.exists(BOOKS_FILE)
+
     try:
         with open(BOOKS_FILE, "r", encoding="utf-8") as f:
-            books = json.load(f)
-    except Exception:
-        books = DEFAULT_BOOKS[:]
+            loaded = json.load(f)
 
-    # Eski books.json fayllari ham yangi funksiyalar bilan mos ishlaydi.
+        if not isinstance(loaded, list):
+            raise ValueError("books.json ro‘yxat formatida emas")
+
+        # Faqat haqiqiy kitob yozuvlarini qabul qilamiz.
+        books = [b for b in loaded if isinstance(b, dict) and "id" in b and "name" in b]
+
+    except Exception as e:
+        # Fayl bor bo‘lsa, xato sababli uni DEFAULT_BOOKS bilan ustidan yozib yubormaymiz.
+        # Aks holda vaqtinchalik o‘qish xatosi qoldiqni 0 ga qaytarib qo‘yishi mumkin.
+        print("books.json o‘qish xatosi:", e)
+
+        if not file_exists:
+            books = [dict(b) for b in DEFAULT_BOOKS]
+            save_books()
+            return
+
+        # Oldingi xotiradagi ma’lumotni saqlaymiz. Dastlabki ishga tushishda esa bo‘sh qolmasin.
+        if not books:
+            books = [dict(b) for b in DEFAULT_BOOKS]
+            return
+
     changed = False
     for b in books:
         defaults = {
+            "stock": 0,
+            "price": 0,
             "category": "Boshqa",
             "author": "Ko‘rsatilmagan",
             "description": "Ma’lumot kiritilmagan.",
@@ -157,7 +185,8 @@ def load_books():
             if key not in b:
                 b[key] = value
                 changed = True
-    if changed or not os.path.exists(BOOKS_FILE):
+
+    if changed or not file_exists:
         save_books()
 
 
@@ -415,6 +444,7 @@ def toggle_favorite(chat_id, book_id):
 
 
 def category_list():
+    refresh_books()
     cats = []
     for b in books:
         c = str(b.get("category", "Boshqa") or "Boshqa").strip()
@@ -534,6 +564,7 @@ def is_admin(chat_id):
 
 
 def find_book(book_id):
+    refresh_books()
     for book in books:
         if int(book["id"]) == int(book_id):
             return book
@@ -608,6 +639,7 @@ def admin_order_keyboard(order_id):
 
 
 def books_menu():
+    refresh_books()
     buttons = []
     for book in books:
         stock = int(book.get("stock", 0))
@@ -663,7 +695,14 @@ def cart_text(chat_id):
         if not book: continue
         subtotal=effective_price(book)*int(qty); total+=subtotal
         lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
-    return "🛒 Savatchangiz:\n\n"+"\n".join(lines)+f"\n\n💰 Kitoblar jami: ₩{total:,}"
+    grand_total = total + int(DELIVERY_FEE)
+    return (
+        "🛒 Savatchangiz:\n\n"
+        + "\n".join(lines)
+        + f"\n\n💰 Kitoblar jami: ₩{total:,}"
+        + f"\n🚚 Yetkazib berish: ₩{DELIVERY_FEE:,}"
+        + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}"
+    )
 
 
 def cart_keyboard(chat_id):
@@ -715,6 +754,7 @@ def cart_keyboard(chat_id):
 # =========================
 
 def admin_books_text():
+    refresh_books()
     if not books:
         return "📚 Hozircha kitob yo‘q."
 
@@ -731,6 +771,7 @@ def admin_books_text():
 
 
 def edit_book_menu():
+    refresh_books()
     buttons = []
 
     for b in books:
@@ -749,6 +790,7 @@ def edit_book_menu():
 
 
 def delete_book_menu():
+    refresh_books()
     buttons = []
 
     for b in books:
@@ -835,6 +877,7 @@ def register_user(chat_id, user):
 
 
 def search_books(query):
+    refresh_books()
     q = query.lower().strip()
     result = []
     if not q:
@@ -1303,6 +1346,8 @@ def handle_message(message):
             return
 
         if text == "📦 Ombor":
+            # Admin ham doim diskdagi eng yangi qoldiqni ko‘rsin.
+            refresh_books()
             lines = ["📦 Ombor qoldig‘i:"]
 
             for b in books:
@@ -1595,12 +1640,27 @@ def handle_message(message):
                         )
                         return
 
+                    # Eng so‘nggi books.json ni bir marta o‘qiymiz va aynan shu
+                    # kitobning qoldig‘ini o‘zgartiramiz.
+                    refresh_books()
+                    book = next(
+                        (b for b in books if int(b.get("id", -1)) == int(state["book_id"])),
+                        None
+                    )
+                    if not book:
+                        states.pop(chat_id, None)
+                        send(chat_id, "❌ Kitob topilmadi.", admin_menu())
+                        return
+
                     old_stock = int(book.get("stock", 0))
                     book["stock"] = value
                     msg = f"✅ Yangi qoldiq: {value} ta"
+
                     if old_stock <= 0 < value:
                         notify_restock(book)
 
+                # Yangi qoldiqni diskka atomik yozamiz va yozilgan holatni
+                # darhol qayta yuklab tekshiramiz.
                 save_books()
                 load_books()
                 states.pop(chat_id, None)
@@ -2615,11 +2675,19 @@ def handle_callback(callback):
             )
             return
 
-        # To'lovni tasdiqlashdan oldin omborni tekshirish
-        for book_id, qty in order["cart"].items():
-            book = find_book(book_id)
+        # Eng so‘nggi books.json ni bir marta yuklaymiz.
+        # Keyingi tekshiruv va kamaytirish bir xil xotiradagi obyektlar bilan ishlaydi.
+        # Shu sabab bir buyurtmada bir nechta kitob bo‘lsa ham oldingi kamaytirish yo‘qolmaydi.
+        refresh_books()
 
-            if not book or int(book["stock"]) < int(qty):
+        order_books = {}
+        for book_id, qty in order["cart"].items():
+            book = next(
+                (b for b in books if int(b.get("id", -1)) == int(book_id)),
+                None
+            )
+
+            if not book or int(book.get("stock", 0)) < int(qty):
                 order["status"] = "stock_problem"
                 save_orders()
 
@@ -2637,16 +2705,19 @@ def handle_callback(callback):
                 )
                 return
 
-        # Omborni kamaytirish
+            order_books[str(book_id)] = book
+
+        # Omborni kamaytirish — barcha kitoblar bitta yuklangan
+        # books ro‘yxatida kamaytiriladi.
         for book_id, qty in order["cart"].items():
-            book = find_book(book_id)
-            book["stock"] = int(book["stock"]) - int(qty)
+            book = order_books[str(book_id)]
+            book["stock"] = int(book.get("stock", 0)) - int(qty)
 
         save_books()
 
         # Kam qoldiq haqida adminni ogohlantirish.
         for book_id, qty in order["cart"].items():
-            book = find_book(book_id)
+            book = order_books.get(str(book_id))
             if book:
                 remaining = int(book.get("stock", 0))
                 if remaining == 0:
