@@ -319,10 +319,6 @@ def cart_keyboard(chat_id):
 # ADMIN KITOBLAR
 # =========================
 
-# =========================
-# ADMIN KITOBLAR
-# =========================
-
 def admin_books_text():
     if not books:
         return "📚 Hozircha kitob yo‘q."
