@@ -9,18 +9,17 @@ ADMIN_ID = os.environ.get("ADMIN_ID", "").strip()
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 
-# Railway Volume ishlatilsa /data papkasi doimiy saqlanadi
+# Railway Volume ishlatilsa /data doimiy saqlanadi
 DATA_DIR = "/data" if os.path.isdir("/data") else "."
 
 BOOKS_FILE = os.path.join(DATA_DIR, "books.json")
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 
 # =========================
-# TO'LOV MA'LUMOTLARI
+# TO'LOV / YETKAZIB BERISH
 # =========================
 
 DELIVERY_FEE = 4000
-
 CARD_NUMBER = "100068127720"
 BANK_NAME = "Toss Bank"
 CARD_OWNER = "Ismoilov M"
@@ -78,14 +77,13 @@ def send(chat_id, text, reply_markup=None):
     return api("sendMessage", data)
 
 
+# =========================
+# SAQLASH / YUKLASH
+# =========================
+
 def save_books():
     with open(BOOKS_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            books,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+        json.dump(books, f, ensure_ascii=False, indent=2)
 
 
 def load_books():
@@ -94,7 +92,6 @@ def load_books():
     try:
         with open(BOOKS_FILE, "r", encoding="utf-8") as f:
             books = json.load(f)
-
     except Exception:
         books = DEFAULT_BOOKS[:]
         save_books()
@@ -102,12 +99,7 @@ def load_books():
 
 def save_orders():
     with open(ORDERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            orders,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+        json.dump(orders, f, ensure_ascii=False, indent=2)
 
 
 def load_orders():
@@ -116,11 +108,14 @@ def load_orders():
     try:
         with open(ORDERS_FILE, "r", encoding="utf-8") as f:
             orders = json.load(f)
-
     except Exception:
         orders = {}
         save_orders()
 
+
+# =========================
+# YORDAMCHI
+# =========================
 
 def is_admin(chat_id):
     return str(chat_id) == ADMIN_ID
@@ -130,7 +125,6 @@ def find_book(book_id):
     for book in books:
         if int(book["id"]) == int(book_id):
             return book
-
     return None
 
 
@@ -145,9 +139,7 @@ def main_menu(chat_id):
     ]
 
     if is_admin(chat_id):
-        buttons.append([
-            {"text": "⚙️ Admin panel"}
-        ])
+        buttons.append([{"text": "⚙️ Admin panel"}])
 
     return {
         "keyboard": buttons,
@@ -164,51 +156,6 @@ def admin_menu():
             [{"text": "🏠 Asosiy menyu"}],
         ],
         "resize_keyboard": True
-    }
-
-
-def books_menu():
-    buttons = []
-
-    for book in books:
-        stock = int(book.get("stock", 0))
-        price = int(book.get("price", 0))
-
-        if stock > 0 and price > 0:
-            label = (
-                f"📖 {book['name']} — "
-                f"₩{price:,} ({stock} ta)"
-            )
-
-            buttons.append([
-                {
-                    "text": label,
-                    "callback_data": f"book_{book['id']}"
-                }
-            ])
-
-        else:
-            label = (
-                f"❌ {book['name']} — "
-                f"hozircha mavjud emas"
-            )
-
-            buttons.append([
-                {
-                    "text": label,
-                    "callback_data": f"none_{book['id']}"
-                }
-            ])
-
-    buttons.append([
-        {
-            "text": "🏠 Bosh menyu",
-            "callback_data": "home"
-        }
-    ])
-
-    return {
-        "inline_keyboard": buttons
     }
 
 
@@ -241,6 +188,37 @@ def admin_order_keyboard(order_id):
     }
 
 
+def books_menu():
+    buttons = []
+
+    for book in books:
+        stock = int(book.get("stock", 0))
+        price = int(book.get("price", 0))
+
+        if stock > 0 and price > 0:
+            label = f"📖 {book['name']} — ₩{price:,} ({stock} ta)"
+            buttons.append([
+                {
+                    "text": label,
+                    "callback_data": f"book_{book['id']}"
+                }
+            ])
+        else:
+            label = f"❌ {book['name']} — hozircha mavjud emas"
+            buttons.append([
+                {
+                    "text": label,
+                    "callback_data": f"none_{book['id']}"
+                }
+            ])
+
+    buttons.append([
+        {"text": "🏠 Bosh menyu", "callback_data": "home"}
+    ])
+
+    return {"inline_keyboard": buttons}
+
+
 # =========================
 # SAVATCHA
 # =========================
@@ -252,7 +230,6 @@ def cart_text(chat_id):
         return "🛒 Savatcha bo‘sh."
 
     lines = ["🛒 Savatchangiz:\n"]
-
     total = 0
 
     for book_id, qty in cart.items():
@@ -262,19 +239,14 @@ def cart_text(chat_id):
             continue
 
         subtotal = int(book["price"]) * int(qty)
-
         total += subtotal
 
         lines.append(
-            f"📖 {book['name']} × {qty} = "
-            f"₩{subtotal:,}"
+            f"📖 {book['name']} × {qty} = ₩{subtotal:,}"
         )
 
-    lines.append(
-        f"\n💰 Kitoblar jami: ₩{total:,}"
-    )
+    lines.append(f"\n💰 Kitoblar jami: ₩{total:,}")
 
-    return "\n".join(lines)
     return "\n".join(lines)
 
 
@@ -309,7 +281,8 @@ def cart_keyboard(chat_id):
     ])
 
     buttons.append([
-        {"text": "⬅️ Orqaga", "callback_data": "home"}
+        {"text": "📚 Kitoblar", "callback_data": "books"},
+        {"text": "🏠 Bosh menyu", "callback_data": "home"}
     ])
 
     return {"inline_keyboard": buttons}
@@ -347,15 +320,10 @@ def edit_book_menu():
         ])
 
     buttons.append([
-        {
-            "text": "⬅️ Admin panel",
-            "callback_data": "admin"
-        }
+        {"text": "⬅️ Admin panel", "callback_data": "admin"}
     ])
 
-    return {
-        "inline_keyboard": buttons
-    }
+    return {"inline_keyboard": buttons}
 
 
 def delete_book_menu():
@@ -370,53 +338,49 @@ def delete_book_menu():
         ])
 
     buttons.append([
-        {
-            "text": "⬅️ Admin panel",
-            "callback_data": "admin"
-        }
+        {"text": "⬅️ Admin panel", "callback_data": "admin"}
     ])
 
-    return {
-        "inline_keyboard": buttons
-    }
+    return {"inline_keyboard": buttons}
 
 
 def edit_fields_menu(book_id):
     return {
         "inline_keyboard": [
-            [
-                {
-                    "text": "✏️ Nomini o‘zgartirish",
-                    "callback_data": f"ename_{book_id}"
-                }
-            ],
-            [
-                {
-                    "text": "💰 Narxini o‘zgartirish",
-                    "callback_data": f"eprice_{book_id}"
-                }
-            ],
-            [
-                {
-                    "text": "📦 Qoldig‘ini o‘zgartirish",
-                    "callback_data": f"estock_{book_id}"
-                }
-            ],
-            [
-                {
-                    "text": "⬅️ Orqaga",
-                    "callback_data": "editlist"
-                }
-            ]
+            [{"text": "✏️ Nomini o‘zgartirish", "callback_data": f"ename_{book_id}"}],
+            [{"text": "💰 Narxini o‘zgartirish", "callback_data": f"eprice_{book_id}"}],
+            [{"text": "📦 Qoldig‘ini o‘zgartirish", "callback_data": f"estock_{book_id}"}],
+            [{"text": "⬅️ Orqaga", "callback_data": "editlist"}],
         ]
     }
 
 
 # =========================
-# MIJOZ ZAKAZI
+# BUYURTMA HISOBI
 # =========================
 
-def create_order_preview(state):
+def calculate_cart(chat_id):
+    cart = carts.get(chat_id, {})
+    lines = []
+    total = 0
+
+    for book_id, qty in cart.items():
+        book = find_book(book_id)
+
+        if not book:
+            continue
+
+        subtotal = int(book["price"]) * int(qty)
+        total += subtotal
+
+        lines.append(
+            f"📖 {book['name']} × {qty} = ₩{subtotal:,}"
+        )
+
+    return lines, total
+
+
+def order_preview_text(state):
     lines = []
     total = 0
 
@@ -427,12 +391,10 @@ def create_order_preview(state):
             continue
 
         subtotal = int(book["price"]) * int(qty)
-
         total += subtotal
 
         lines.append(
-            f"📖 {book['name']} × {qty} = "
-            f"₩{subtotal:,}"
+            f"📖 {book['name']} × {qty} = ₩{subtotal:,}"
         )
 
     grand_total = total + DELIVERY_FEE
@@ -440,16 +402,15 @@ def create_order_preview(state):
     text = (
         "🧾 BUYURTMANGIZ\n\n"
         + "\n".join(lines)
-        + "\n\n"
-        f"💰 Kitoblar: ₩{total:,}\n"
-        f"🚚 택배 +₩{DELIVERY_FEE:,}\n"
-        f"💵 JAMI TO‘LOV: ₩{grand_total:,}\n\n"
+        + f"\n\n💰 Kitoblar: ₩{total:,}"
+        + f"\n🚚 택배 +₩{DELIVERY_FEE:,}"
+        + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}\n\n"
         "💳 TO‘LOV MA’LUMOTLARI\n"
         f"💳 Karta raqami: {CARD_NUMBER}\n"
         f"🏦 {BANK_NAME}\n"
         f"👤 {CARD_OWNER}\n\n"
-        "⚠️ Iltimos, yuqoridagi karta raqamiga "
-        "jami summani o‘tkazing.\n\n"
+        "⚠️ Iltimos, jami summani yuqoridagi "
+        "karta raqamiga o‘tkazing.\n\n"
         "To‘lovni amalga oshirgach, "
         "«✅ Buyurtmani tasdiqlash» tugmasini bosing."
     )
@@ -463,12 +424,11 @@ def create_order_preview(state):
 
 def handle_message(message):
     chat_id = message["chat"]["id"]
-
     text = message.get("text", "").strip()
 
     user = message.get("from", {})
 
-    name = " ".join(
+    user_full_name = " ".join(
         x for x in [
             user.get("first_name", ""),
             user.get("last_name", "")
@@ -480,13 +440,12 @@ def handle_message(message):
 
     state = states.get(chat_id)
 
-    # -------------------------
+    # =========================
     # START
-    # -------------------------
+    # =========================
 
     if text == "/start":
         carts.setdefault(chat_id, {})
-
         states.pop(chat_id, None)
 
         send(
@@ -495,34 +454,30 @@ def handle_message(message):
             "Muhaјeer Books botiga xush kelibsiz.",
             main_menu(chat_id)
         )
-
         return
 
-    # -------------------------
+    # =========================
     # ID
-    # -------------------------
+    # =========================
 
     if text == "/id":
         send(
             chat_id,
             f"Sizning Telegram ID raqamingiz: {chat_id}"
         )
-
         return
 
-    # -------------------------
+    # =========================
     # ADMIN PANEL
-    # -------------------------
+    # =========================
 
     if text == "/admin" or text == "⚙️ Admin panel":
-
         if not is_admin(chat_id):
             send(
                 chat_id,
                 "⛔ Sizda admin huquqi yo‘q.",
                 main_menu(chat_id)
             )
-
             return
 
         states.pop(chat_id, None)
@@ -532,45 +487,37 @@ def handle_message(message):
             "⚙️ Admin panel",
             admin_menu()
         )
-
         return
 
     # =========================
-    # ADMIN
+    # ADMIN AMALLARI
     # =========================
 
     if is_admin(chat_id):
 
         if text == "🏠 Asosiy menyu":
-
             states.pop(chat_id, None)
-
             send(
                 chat_id,
                 "Asosiy menyu:",
                 main_menu(chat_id)
             )
-
             return
 
         if text == "📚 Kitoblar ro‘yxati":
-
             send(
                 chat_id,
                 admin_books_text(),
                 admin_menu()
             )
-
             return
 
         if text == "📦 Ombor":
-
             lines = ["📦 Ombor qoldig‘i:"]
 
             for b in books:
                 lines.append(
-                    f"• {b['name']} — "
-                    f"{int(b['stock'])} ta"
+                    f"• {b['name']} — {int(b['stock'])} ta"
                 )
 
             send(
@@ -578,132 +525,96 @@ def handle_message(message):
                 "\n".join(lines),
                 admin_menu()
             )
-
             return
 
         if text == "➕ Kitob qo‘shish":
-
-            states[chat_id] = {
-                "action": "add_name"
-            }
-
+            states[chat_id] = {"action": "add_name"}
             send(
                 chat_id,
                 "➕ Yangi kitob nomini yozing:"
             )
-
             return
 
         if text == "✏️ Kitob tahrirlash":
-
             states.pop(chat_id, None)
-
             send(
                 chat_id,
                 "Tahrir qilinadigan kitobni tanlang:",
                 edit_book_menu()
             )
-
             return
 
         if text == "🗑 Kitob o‘chirish":
-
             states.pop(chat_id, None)
-
             send(
                 chat_id,
                 "O‘chiriladigan kitobni tanlang:",
                 delete_book_menu()
             )
-
             return
 
         if text == "❌ Bekor qilish" and state:
-
             states.pop(chat_id, None)
-
             send(
                 chat_id,
                 "Bekor qilindi.",
                 admin_menu()
             )
-
             return
 
-        # -------------------------
-        # ADMIN STATES
-        # -------------------------
-
         if state:
-
             action = state.get("action")
 
             if action == "add_name":
+                if not text:
+                    send(chat_id, "❌ Kitob nomi bo‘sh bo‘lmasin.")
+                    return
 
                 state["name"] = text
-
                 state["action"] = "add_price"
 
                 send(
                     chat_id,
-                    "💰 Endi narxini yozing.\n"
-                    "Masalan: 25000"
+                    "💰 Endi narxini yozing.\nMasalan: 25000"
                 )
-
                 return
 
             if action == "add_price":
-
                 try:
                     price = int(
-                        text.replace(",", "")
-                        .replace(" ", "")
+                        text.replace(",", "").replace(" ", "")
                     )
-
                     if price <= 0:
                         raise ValueError
-
                 except ValueError:
-
                     send(
                         chat_id,
                         "❌ Narx faqat musbat son bo‘lsin.\n"
                         "Masalan: 25000"
                     )
-
                     return
 
                 state["price"] = price
-
                 state["action"] = "add_stock"
 
                 send(
                     chat_id,
-                    "📦 Endi qoldiq sonini yozing.\n"
-                    "Masalan: 10"
+                    "📦 Endi qoldiq sonini yozing.\nMasalan: 10"
                 )
-
                 return
 
             if action == "add_stock":
-
                 try:
                     stock = int(
-                        text.replace(",", "")
-                        .replace(" ", "")
+                        text.replace(",", "").replace(" ", "")
                     )
-
                     if stock < 0:
                         raise ValueError
-
                 except ValueError:
-
                     send(
                         chat_id,
-                        "❌ Qoldiq 0 yoki undan katta "
-                        "son bo‘lsin."
+                        "❌ Qoldiq 0 yoki undan katta son bo‘lsin."
                     )
-
                     return
 
                 new_id = max(
@@ -720,115 +631,80 @@ def handle_message(message):
 
                 save_books()
 
+                book_name = state["name"]
+                book_price = state["price"]
+
                 states.pop(chat_id, None)
 
                 send(
                     chat_id,
                     f"✅ Kitob qo‘shildi!\n\n"
-                    f"📖 {state['name']}\n"
-                    f"💰 ₩{state['price']:,}\n"
+                    f"📖 {book_name}\n"
+                    f"💰 ₩{book_price:,}\n"
                     f"📦 {stock} ta",
                     admin_menu()
                 )
-
                 return
 
-            if action in (
-                "rename",
-                "change_price",
-                "change_stock"
-            ):
-
-                book = find_book(
-                    state["book_id"]
-                )
+            if action in ("rename", "change_price", "change_stock"):
+                book = find_book(state["book_id"])
 
                 if not book:
-
                     states.pop(chat_id, None)
-
                     send(
                         chat_id,
                         "❌ Kitob topilmadi.",
                         admin_menu()
                     )
-
                     return
 
                 if action == "rename":
-
                     if not text:
-
                         send(
                             chat_id,
                             "❌ Nom bo‘sh bo‘lmasin."
                         )
-
                         return
 
                     book["name"] = text
-
-                    msg = (
-                        f"✅ Kitob nomi o‘zgartirildi: "
-                        f"{text}"
-                    )
+                    msg = f"✅ Kitob nomi o‘zgartirildi: {text}"
 
                 elif action == "change_price":
-
                     try:
                         value = int(
-                            text.replace(",", "")
-                            .replace(" ", "")
+                            text.replace(",", "").replace(" ", "")
                         )
-
                         if value <= 0:
                             raise ValueError
-
                     except ValueError:
-
                         send(
                             chat_id,
                             "❌ Narx faqat musbat son bo‘lsin.\n"
                             "Masalan: 30000"
                         )
-
                         return
 
                     book["price"] = value
-
-                    msg = (
-                        f"✅ Yangi narx: ₩{value:,}"
-                    )
+                    msg = f"✅ Yangi narx: ₩{value:,}"
 
                 else:
-
                     try:
                         value = int(
-                            text.replace(",", "")
-                            .replace(" ", "")
+                            text.replace(",", "").replace(" ", "")
                         )
-
                         if value < 0:
                             raise ValueError
-
                     except ValueError:
-
                         send(
                             chat_id,
-                            "❌ Qoldiq 0 yoki undan katta "
-                            "son bo‘lsin."
+                            "❌ Qoldiq 0 yoki undan katta son bo‘lsin."
                         )
-
                         return
 
                     book["stock"] = value
-
-                    msg = (
-                        f"✅ Yangi qoldiq: {value} ta"
-                    )
+                    msg = f"✅ Yangi qoldiq: {value} ta"
 
                 save_books()
-
                 states.pop(chat_id, None)
 
                 send(
@@ -836,52 +712,60 @@ def handle_message(message):
                     msg,
                     admin_menu()
                 )
-
                 return
 
-        # Admin panelga tegishli bo‘lmagan
-        # xabarlar pastdagi customer menyusiga o'tadi
+        # Admin bo‘lmasa, oddiy mijoz menyusiga o'tishi mumkin.
+        # Noma'lum admin xabarini shu yerda qaytaramiz.
+        if text not in (
+            "📚 Kitoblar",
+            "🛒 Savatcha",
+            "📦 Zakaz berish",
+            "📞 Bog‘lanish"
+        ):
+            send(
+                chat_id,
+                "Admin paneldan kerakli bo‘limni tanlang.",
+                admin_menu()
+            )
+            return
 
     # =========================
-    # CUSTOMER MENU
+    # CUSTOMER: KITOBLAR
     # =========================
 
     if text == "📚 Kitoblar":
-
         send(
             chat_id,
             "📚 Mavjud kitoblar:",
             books_menu()
         )
-
         return
 
+    # =========================
+    # CUSTOMER: SAVATCHA
+    # =========================
+
     if text == "🛒 Savatcha":
+        send(
+            chat_id,
+            cart_text(chat_id),
+            cart_keyboard(chat_id)
+        )
+        return
 
-    send(
-        chat_id,
-        cart_text(chat_id),
-        cart_keyboard(chat_id)
-    )
-
-    return
-
-    # -------------------------
-    # ZAKAZ BOSHLASH
-    # -------------------------
+    # =========================
+    # CUSTOMER: ZAKAZ BOSHLASH
+    # =========================
 
     if text == "📦 Zakaz berish":
-
         cart = carts.get(chat_id, {})
 
         if not cart:
-
             send(
                 chat_id,
                 "🛒 Avval kitob tanlang.",
                 main_menu(chat_id)
             )
-
             return
 
         states[chat_id] = {
@@ -893,19 +777,16 @@ def handle_message(message):
         send(
             chat_id,
             cart_text(chat_id)
-            + "\n\n📝 Buyurtma uchun "
-            "ismingizni yozing:",
+            + "\n\n📝 Buyurtma uchun ismingizni yozing:",
             order_keyboard()
         )
-
         return
 
-    # -------------------------
-    # BEKOR QILISH
-    # -------------------------
+    # =========================
+    # CUSTOMER: BEKOR QILISH
+    # =========================
 
     if text == "❌ Bekor qilish":
-
         states.pop(chat_id, None)
 
         send(
@@ -913,256 +794,205 @@ def handle_message(message):
             "Bekor qilindi.",
             main_menu(chat_id)
         )
-
         return
 
-    # -------------------------
-    # BOG'LANISH
-    # -------------------------
+    # =========================
+    # CUSTOMER: BOG'LANISH
+    # =========================
 
     if text == "📞 Bog‘lanish":
-
         send(
             chat_id,
             "📞 Bog‘lanish:\n"
-            "Admin bilan Telegram orqali "
-            "bog‘lanishingiz mumkin.",
+            "Admin bilan Telegram orqali bog‘lanishingiz mumkin.",
             main_menu(chat_id)
         )
-
         return
 
     # =========================
-    # ORDER STATES
+    # ORDER: ISM
     # =========================
 
-    if state:
+    if state and state.get("action") == "order_name":
+        state["name"] = text
+        state["action"] = "order_phone"
 
-        action = state.get("action")
+        send(
+            chat_id,
+            "📞 Telefon raqamingizni yozing:"
+        )
+        return
 
-        # -------------------------
-        # ISM
-        # -------------------------
+    # =========================
+    # ORDER: TELEFON
+    # =========================
 
-        if action == "order_name":
+    if state and state.get("action") == "order_phone":
+        state["phone"] = text
+        state["action"] = "order_address"
 
-            state["name"] = text
+        send(
+            chat_id,
+            "📍 Yetkazib berish manzilingizni yozing:"
+        )
+        return
 
-            state["action"] = "order_phone"
+    # =========================
+    # ORDER: MANZIL
+    # =========================
 
-            send(
-                chat_id,
-                "📞 Telefon raqamingizni yozing:"
-            )
+    if state and state.get("action") == "order_address":
+        state["address"] = text
 
-            return
+        # Omborni tekshirish
+        for book_id, qty in state["cart"].items():
+            book = find_book(book_id)
 
-        # -------------------------
-        # TELEFON
-        # -------------------------
-
-        if action == "order_phone":
-
-            state["phone"] = text
-
-            state["action"] = "order_address"
-
-            send(
-                chat_id,
-                "📍 Yetkazib berish "
-                "manzilingizni yozing:"
-            )
-
-            return
-
-        # -------------------------
-        # MANZIL
-        # -------------------------
-
-        if action == "order_address":
-
-            state["address"] = text
-
-            # Omborni tekshirish
-            for book_id, qty in state["cart"].items():
-
-                book = find_book(book_id)
-
-                if (
-                    not book
-                    or int(book["stock"]) < int(qty)
-                ):
-
-                    states.pop(chat_id, None)
-
-                    send(
-                        chat_id,
-                        "❌ Kechirasiz, buyurtmadagi "
-                        "kitoblardan biri yetarli "
-                        "qolmagan.",
-                        main_menu(chat_id)
-                    )
-
-                    return
-
-            preview, total, grand_total = (
-                create_order_preview(state)
-            )
-
-            state["total"] = total
-            state["delivery_fee"] = DELIVERY_FEE
-            state["grand_total"] = grand_total
-
-            state["action"] = "order_confirm"
-
-            send(
-                chat_id,
-                preview,
-                order_keyboard()
-            )
-
-            return
-
-        # -------------------------
-        # BUYURTMANI TASDIQLASH
-        # -------------------------
-
-        if action == "order_confirm":
-
-            if text != "✅ Buyurtmani tasdiqlash":
+            if not book or int(book["stock"]) < int(qty):
+                states.pop(chat_id, None)
 
                 send(
                     chat_id,
-                    "Iltimos, buyurtmani "
-                    "tasdiqlang yoki bekor qiling.",
-                    order_keyboard()
+                    "❌ Kechirasiz, buyurtmadagi "
+                    "kitoblardan biri yetarli qolmagan.",
+                    main_menu(chat_id)
                 )
-
                 return
 
-            # Tasdiqlashdan oldin yana
-            # omborni tekshiramiz
-            for book_id, qty in state["cart"].items():
+        preview, total, grand_total = order_preview_text(state)
 
-                book = find_book(book_id)
+        state["total"] = total
+        state["delivery_fee"] = DELIVERY_FEE
+        state["grand_total"] = grand_total
+        state["action"] = "order_confirm"
 
-                if (
-                    not book
-                    or int(book["stock"]) < int(qty)
-                ):
+        send(
+            chat_id,
+            preview,
+            order_keyboard()
+        )
+        return
 
-                    states.pop(chat_id, None)
+    # =========================
+    # ORDER: TASDIQLASH
+    # =========================
 
-                    send(
-                        chat_id,
-                        "❌ Kechirasiz, buyurtmadagi "
-                        "kitoblardan biri hozir "
-                        "qolmagan.",
-                        main_menu(chat_id)
-                    )
+    if state and state.get("action") == "order_confirm":
 
-                    return
-
-            # Yangi order ID
-            order_id = str(
-                int(time.time())
-            )
-
-            # Kitoblar
-            lines = []
-
-            for book_id, qty in state["cart"].items():
-
-                book = find_book(book_id)
-
-                if not book:
-                    continue
-
-                subtotal = (
-                    int(book["price"])
-                    * int(qty)
-                )
-
-                lines.append(
-                    f"• {book['name']} × {qty} "
-                    f"= ₩{subtotal:,}"
-                )
-
-            order = {
-                "order_id": order_id,
-                "chat_id": chat_id,
-                "name": state["name"],
-                "phone": state["phone"],
-                "address": state["address"],
-                "username": state.get(
-                    "username",
-                    ""
-                ),
-                "cart": state["cart"],
-                "total": state["total"],
-                "delivery_fee": DELIVERY_FEE,
-                "grand_total": state["grand_total"],
-                "status": "pending"
-            }
-
-            orders[order_id] = order
-
-            save_orders()
-
-            # Admin uchun zakaz
-            order_text = (
-                "🛒 YANGI BUYURTMA!\n\n"
-                f"🔢 Zakaz №{order_id}\n\n"
-                f"👤 Ism: {state['name']}\n"
-                f"📞 Telefon: {state['phone']}\n"
-                f"📍 Manzil: {state['address']}\n"
-                f"🔗 Telegram: "
-                f"@{state['username'] if state['username'] else 'username yo‘q'}\n"
-                f"🆔 ID: {chat_id}\n\n"
-                + "\n".join(lines)
-                + "\n\n"
-                f"💰 Kitoblar: ₩{state['total']:,}\n"
-                f"🚚 택배: +₩{DELIVERY_FEE:,}\n"
-                f"💵 JAMI: ₩{state['grand_total']:,}\n\n"
-                "💳 TO‘LOV MA’LUMOTLARI\n"
-                f"💳 Karta: {CARD_NUMBER}\n"
-                f"🏦 {BANK_NAME}\n"
-                f"👤 {CARD_OWNER}"
-            )
-
-            if ADMIN_ID:
-
-                send(
-                    ADMIN_ID,
-                    order_text,
-                    admin_order_keyboard(order_id)
-                )
-
-            # Savatchani bo'shatamiz
-            carts[chat_id] = {}
-
+        if text == "❌ Bekor qilish":
             states.pop(chat_id, None)
 
-            # Mijozga
             send(
                 chat_id,
-                "✅ Buyurtmangiz qabul qilindi!\n\n"
-                f"🔢 Zakaz №{order_id}\n"
-                f"💵 Jami: ₩{state['grand_total']:,}\n\n"
-                "💳 To‘lov ma’lumotlari:\n"
-                f"💳 Karta raqami: {CARD_NUMBER}\n"
-                f"🏦 {BANK_NAME}\n"
-                f"👤 {CARD_OWNER}\n\n"
-                "To‘lovingiz tekshirilgach, "
-                "admin siz bilan bog‘lanadi.",
+                "Buyurtma bekor qilindi.",
                 main_menu(chat_id)
             )
-
             return
 
-    # -------------------------
+        if text != "✅ Buyurtmani tasdiqlash":
+            send(
+                chat_id,
+                "Iltimos, buyurtmani tasdiqlang yoki bekor qiling.",
+                order_keyboard()
+            )
+            return
+
+        # Tasdiqlash paytida yana omborni tekshiramiz
+        for book_id, qty in state["cart"].items():
+            book = find_book(book_id)
+
+            if not book or int(book["stock"]) < int(qty):
+                states.pop(chat_id, None)
+
+                send(
+                    chat_id,
+                    "❌ Kechirasiz, buyurtmadagi "
+                    "kitoblardan biri hozir qolmagan.",
+                    main_menu(chat_id)
+                )
+                return
+
+        # Zakaz ID
+        order_id = str(int(time.time() * 1000))
+
+        lines = []
+
+        for book_id, qty in state["cart"].items():
+            book = find_book(book_id)
+
+            if not book:
+                continue
+
+            subtotal = int(book["price"]) * int(qty)
+
+            lines.append(
+                f"• {book['name']} × {qty} = ₩{subtotal:,}"
+            )
+
+        order = {
+            "order_id": order_id,
+            "chat_id": chat_id,
+            "name": state["name"],
+            "phone": state["phone"],
+            "address": state["address"],
+            "username": state.get("username", ""),
+            "cart": state["cart"],
+            "total": state["total"],
+            "delivery_fee": DELIVERY_FEE,
+            "grand_total": state["grand_total"],
+            "status": "pending"
+        }
+
+        orders[order_id] = order
+        save_orders()
+
+        order_text = (
+            "🛒 YANGI BUYURTMA!\n\n"
+            f"🔢 Zakaz №{order_id}\n\n"
+            f"👤 Ism: {state['name']}\n"
+            f"📞 Telefon: {state['phone']}\n"
+            f"📍 Manzil: {state['address']}\n"
+            f"🔗 Telegram: "
+            f"@{state['username'] if state['username'] else 'username yo‘q'}\n"
+            f"🆔 ID: {chat_id}\n\n"
+            + "\n".join(lines)
+            + f"\n\n💰 Kitoblar: ₩{state['total']:,}"
+            + f"\n🚚 택배: +₩{DELIVERY_FEE:,}"
+            + f"\n💵 JAMI: ₩{state['grand_total']:,}\n\n"
+            "💳 TO‘LOV MA’LUMOTLARI\n"
+            f"💳 Karta: {CARD_NUMBER}\n"
+            f"🏦 {BANK_NAME}\n"
+            f"👤 {CARD_OWNER}"
+        )
+
+        if ADMIN_ID:
+            send(
+                ADMIN_ID,
+                order_text,
+                admin_order_keyboard(order_id)
+            )
+
+        carts[chat_id] = {}
+        states.pop(chat_id, None)
+
+        send(
+            chat_id,
+            "✅ Buyurtmangiz qabul qilindi!\n\n"
+            f"🔢 Zakaz №{order_id}\n"
+            f"💵 Jami: ₩{order['grand_total']:,}\n\n"
+            "💳 To‘lov ma’lumotlari:\n"
+            f"💳 Karta raqami: {CARD_NUMBER}\n"
+            f"🏦 {BANK_NAME}\n"
+            f"👤 {CARD_OWNER}\n\n"
+            "To‘lovingiz tekshirilgach, "
+            "admin siz bilan bog‘lanadi.",
+            main_menu(chat_id)
+        )
+        return
+
+    # =========================
     # NOMALUM XABAR
-    # -------------------------
+    # =========================
 
     send(
         chat_id,
@@ -1176,36 +1006,60 @@ def handle_message(message):
 # =========================
 
 def handle_callback(callback):
-
     callback_id = callback["id"]
-
-    chat_id = callback["message"]["chat"]["id"]
+    message = callback.get("message", {})
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
 
     data = callback.get("data", "")
 
-    api(
-        "answerCallbackQuery",
-        {
-            "callback_query_id": callback_id
-        }
-    )
+    try:
+        api(
+            "answerCallbackQuery",
+            {"callback_query_id": callback_id}
+        )
+    except Exception as e:
+        print("Callback answer xatosi:", e)
+
+    if chat_id is None:
+        return
 
     # =========================
     # HOME
     # =========================
 
     if data == "home":
-
         send(
             chat_id,
             "Asosiy menyu:",
             main_menu(chat_id)
         )
-
         return
-            # SAVATCHA - KAMAYTIRISH
-    if data.startswith("cartminus_"):
 
+    # =========================
+    # KITOBLAR
+    # =========================
+
+    if data == "books":
+        send(
+            chat_id,
+            "📚 Mavjud kitoblar:",
+            books_menu()
+        )
+        return
+
+    # =========================
+    # SAVATCHA - NOOP
+    # =========================
+
+    if data == "cart_noop":
+        return
+
+    # =========================
+    # SAVATCHA - KAMAYTIRISH
+    # =========================
+
+    if data.startswith("cartminus_"):
         book_id = int(data.split("_", 1)[1])
         cart = carts.get(chat_id, {})
 
@@ -1222,15 +1076,18 @@ def handle_callback(callback):
         )
         return
 
+    # =========================
+    # SAVATCHA - KO'PAYTIRISH
+    # =========================
 
-    # SAVATCHA - KO‘PAYTIRISH
     if data.startswith("cartplus_"):
-
         book_id = int(data.split("_", 1)[1])
+
         book = find_book(book_id)
         cart = carts.setdefault(chat_id, {})
 
         if not book:
+            send(chat_id, "❌ Kitob topilmadi.")
             return
 
         current = int(cart.get(book_id, 0))
@@ -1251,10 +1108,11 @@ def handle_callback(callback):
         )
         return
 
+    # =========================
+    # SAVATCHA - BITTA KITOBNI O'CHIRISH
+    # =========================
 
-    # SAVATCHA - BITTA KITOBNI O‘CHIRISH
     if data.startswith("cartdelete_"):
-
         book_id = int(data.split("_", 1)[1])
         cart = carts.get(chat_id, {})
 
@@ -1268,10 +1126,11 @@ def handle_callback(callback):
         )
         return
 
+    # =========================
+    # SAVATCHANI TO'LIQ TOZALASH
+    # =========================
 
-    # SAVATCHANI TO‘LIQ TOZALASH
     if data == "cartclear":
-
         carts[chat_id] = {}
 
         send(
@@ -1281,19 +1140,12 @@ def handle_callback(callback):
         )
         return
 
-
-    # MIQDOR KO‘RSATKICHI
-    if data == "cart_noop":
-        return
-
     # =========================
     # ADMIN
     # =========================
 
     if data == "admin":
-
         if is_admin(chat_id):
-
             states.pop(chat_id, None)
 
             send(
@@ -1301,7 +1153,6 @@ def handle_callback(callback):
                 "⚙️ Admin panel",
                 admin_menu()
             )
-
         return
 
     # =========================
@@ -1309,16 +1160,12 @@ def handle_callback(callback):
     # =========================
 
     if data == "editlist":
-
         if is_admin(chat_id):
-
             send(
                 chat_id,
-                "Tahrir qilinadigan "
-                "kitobni tanlang:",
+                "Tahrir qilinadigan kitobni tanlang:",
                 edit_book_menu()
             )
-
         return
 
     # =========================
@@ -1326,25 +1173,17 @@ def handle_callback(callback):
     # =========================
 
     if data.startswith("edit_"):
-
         if not is_admin(chat_id):
             return
 
-        book = find_book(
-            data.split("_", 1)[1]
-        )
+        book = find_book(data.split("_", 1)[1])
 
         if book:
-
             send(
                 chat_id,
-                f"✏️ {book['name']}\n\n"
-                "Nimani o‘zgartirmoqchisiz?",
-                edit_fields_menu(
-                    book["id"]
-                )
+                f"✏️ {book['name']}\n\nNimani o‘zgartirmoqchisiz?",
+                edit_fields_menu(book["id"])
             )
-
         return
 
     # =========================
@@ -1352,13 +1191,10 @@ def handle_callback(callback):
     # =========================
 
     if data.startswith("ename_"):
-
         if not is_admin(chat_id):
             return
 
-        book_id = int(
-            data.split("_", 1)[1]
-        )
+        book_id = int(data.split("_", 1)[1])
 
         states[chat_id] = {
             "action": "rename",
@@ -1369,7 +1205,6 @@ def handle_callback(callback):
             chat_id,
             "✏️ Yangi kitob nomini yozing:"
         )
-
         return
 
     # =========================
@@ -1377,13 +1212,10 @@ def handle_callback(callback):
     # =========================
 
     if data.startswith("eprice_"):
-
         if not is_admin(chat_id):
             return
 
-        book_id = int(
-            data.split("_", 1)[1]
-        )
+        book_id = int(data.split("_", 1)[1])
 
         states[chat_id] = {
             "action": "change_price",
@@ -1392,10 +1224,8 @@ def handle_callback(callback):
 
         send(
             chat_id,
-            "💰 Yangi narxni yozing (₩).\n"
-            "Masalan: 35000"
+            "💰 Yangi narxni yozing (₩).\nMasalan: 35000"
         )
-
         return
 
     # =========================
@@ -1403,13 +1233,10 @@ def handle_callback(callback):
     # =========================
 
     if data.startswith("estock_"):
-
         if not is_admin(chat_id):
             return
 
-        book_id = int(
-            data.split("_", 1)[1]
-        )
+        book_id = int(data.split("_", 1)[1])
 
         states[chat_id] = {
             "action": "change_stock",
@@ -1418,10 +1245,8 @@ def handle_callback(callback):
 
         send(
             chat_id,
-            "📦 Yangi qoldiqni yozing.\n"
-            "Masalan: 12"
+            "📦 Yangi qoldiqni yozing.\nMasalan: 12"
         )
-
         return
 
     # =========================
@@ -1429,29 +1254,21 @@ def handle_callback(callback):
     # =========================
 
     if data.startswith("delete_"):
-
         if not is_admin(chat_id):
             return
 
-        book_id = int(
-            data.split("_", 1)[1]
-        )
-
+        book_id = int(data.split("_", 1)[1])
         book = find_book(book_id)
 
         if book:
-
             books.remove(book)
-
             save_books()
 
             send(
                 chat_id,
-                f"🗑 O‘chirildi: "
-                f"{book['name']}",
+                f"🗑 O‘chirildi: {book['name']}",
                 admin_menu()
             )
-
         return
 
     # =========================
@@ -1459,25 +1276,18 @@ def handle_callback(callback):
     # =========================
 
     if data.startswith("none_"):
-
         send(
             chat_id,
-            "❌ Bu kitob hozircha "
-            "mavjud emas."
+            "❌ Bu kitob hozircha mavjud emas."
         )
-
         return
 
     # =========================
-    # ADD BOOK TO CART
+    # BOOK -> CART
     # =========================
 
     if data.startswith("book_"):
-
-        book_id = int(
-            data.split("_", 1)[1]
-        )
-
+        book_id = int(data.split("_", 1)[1])
         book = find_book(book_id)
 
         if (
@@ -1485,46 +1295,30 @@ def handle_callback(callback):
             or int(book["stock"]) <= 0
             or int(book["price"]) <= 0
         ):
-
             send(
                 chat_id,
-                "❌ Bu kitob hozircha "
-                "mavjud emas."
+                "❌ Bu kitob hozircha mavjud emas."
             )
-
             return
 
-        cart = carts.setdefault(
-            chat_id,
-            {}
-        )
+        cart = carts.setdefault(chat_id, {})
+        current = int(cart.get(book_id, 0))
 
-        current = int(
-            cart.get(book_id, 0)
-        )
-
-        if current >= int(
-            book["stock"]
-        ):
-
+        if current >= int(book["stock"]):
             send(
                 chat_id,
-                f"❌ Omborda faqat "
-                f"{book['stock']} ta bor."
+                f"❌ Omborda faqat {book['stock']} ta bor."
             )
-
             return
 
         cart[book_id] = current + 1
 
         send(
             chat_id,
-            f"✅ {book['name']} "
-            "savatchaga qo‘shildi.\n\n"
+            f"✅ {book['name']} savatchaga qo‘shildi.\n\n"
             + cart_text(chat_id),
             main_menu(chat_id)
         )
-
         return
 
     # =========================
@@ -1532,168 +1326,110 @@ def handle_callback(callback):
     # =========================
 
     if data.startswith("paid_"):
-
         if not is_admin(chat_id):
             return
 
-        order_id = data.split(
-            "_",
-            1
-        )[1]
-
+        order_id = data.split("_", 1)[1]
         order = orders.get(order_id)
 
         if not order:
-
-            send(
-                chat_id,
-                "❌ Zakaz topilmadi."
-            )
-
+            send(chat_id, "❌ Zakaz topilmadi.")
             return
 
         if order["status"] != "pending":
-
             send(
                 chat_id,
-                "⚠️ Bu zakaz allaqachon "
-                "qayta ishlangan."
+                "⚠️ Bu zakaz allaqachon qayta ishlangan."
             )
-
             return
 
-        # To'lov tasdiqlanishidan oldin
-        # omborni yana tekshirish
+        # To'lovni tasdiqlashdan oldin omborni tekshirish
         for book_id, qty in order["cart"].items():
-
             book = find_book(book_id)
 
-            if (
-                not book
-                or int(book["stock"]) < int(qty)
-            ):
-
+            if not book or int(book["stock"]) < int(qty):
                 order["status"] = "stock_problem"
-
                 save_orders()
 
                 send(
                     chat_id,
-                    "❌ Omborda bu zakazni "
-                    "bajarish uchun yetarli "
-                    "kitob qolmagan."
+                    "❌ Omborda bu zakazni bajarish uchun "
+                    "yetarli kitob qolmagan."
                 )
 
                 send(
                     order["chat_id"],
-                    "❌ Afsuski, zakazingizdagi "
-                    "kitoblardan biri qolmagan. "
-                    "Admin siz bilan bog‘lanadi.",
-                    main_menu(
-                        order["chat_id"]
-                    )
+                    "❌ Afsuski, zakazingizdagi kitoblardan "
+                    "biri qolmagan. Admin siz bilan bog‘lanadi.",
+                    main_menu(order["chat_id"])
                 )
-
                 return
 
         # Omborni kamaytirish
         for book_id, qty in order["cart"].items():
-
             book = find_book(book_id)
-
-            book["stock"] = (
-                int(book["stock"])
-                - int(qty)
-            )
+            book["stock"] = int(book["stock"]) - int(qty)
 
         save_books()
 
         order["status"] = "paid"
-
         save_orders()
 
-        # Admin
         send(
             chat_id,
-            f"✅ Zakaz №{order_id} "
-            "to‘lov qilindi deb belgilandi.\n\n"
+            f"✅ Zakaz №{order_id} to‘lov qilindi deb belgilandi.\n\n"
             "📦 Ombor yangilandi.",
             admin_menu()
         )
 
-        # Mijoz
         send(
             order["chat_id"],
             f"✅ To‘lovingiz tasdiqlandi!\n\n"
             f"🔢 Zakaz №{order_id}\n"
             f"💵 Jami: ₩{order['grand_total']:,}\n\n"
-            "📦 Buyurtmangiz tez orada "
-            "yuboriladi.\n"
+            "📦 Buyurtmangiz tez orada yuboriladi.\n"
             "Rahmat! ❤️",
-            main_menu(
-                order["chat_id"]
-            )
+            main_menu(order["chat_id"])
         )
-
         return
 
     # =========================
-    # ADMIN: CANCEL ORDER
+    # ADMIN: ORDER CANCEL
     # =========================
 
     if data.startswith("cancelorder_"):
-
         if not is_admin(chat_id):
             return
 
-        order_id = data.split(
-            "_",
-            1
-        )[1]
-
+        order_id = data.split("_", 1)[1]
         order = orders.get(order_id)
 
         if not order:
-
-            send(
-                chat_id,
-                "❌ Zakaz topilmadi."
-            )
-
+            send(chat_id, "❌ Zakaz topilmadi.")
             return
 
         if order["status"] != "pending":
-
             send(
                 chat_id,
-                "⚠️ Bu zakaz allaqachon "
-                "qayta ishlangan."
+                "⚠️ Bu zakaz allaqachon qayta ishlangan."
             )
-
             return
 
         order["status"] = "cancelled"
-
         save_orders()
 
         send(
             chat_id,
-            f"❌ Zakaz №{order_id} "
-            "bekor qilindi.",
+            f"❌ Zakaz №{order_id} bekor qilindi.",
             admin_menu()
         )
 
         send(
             order["chat_id"],
-            f"❌ Zakaz №{order_id} "
-            "bekor qilindi.\n\n"
-            "Agar xatolik bo‘lsa, admin "
-            "bilan bog‘laning.",
-            main_menu(
-                order["chat_id"]
-            )
+            f"❌ Zakaz №{order_id} bekor qilindi.\n\n"
+            "Agar xatolik bo‘lsa, admin bilan bog‘laning.",
+            main_menu(order["chat_id"])
         )
-
         return
 
 
@@ -1702,11 +1438,8 @@ def handle_callback(callback):
 # =========================
 
 def main():
-
     if not TOKEN:
-        raise Exception(
-            "BOT_TOKEN sozlanmagan!"
-        )
+        raise Exception("BOT_TOKEN sozlanmagan!")
 
     load_books()
     load_orders()
@@ -1714,52 +1447,25 @@ def main():
     offset = None
 
     while True:
-
         try:
-
-            params = {
-                "timeout": 50
-            }
+            params = {"timeout": 50}
 
             if offset is not None:
                 params["offset"] = offset
 
-            result = api(
-                "getUpdates",
-                params
-            )
+            result = api("getUpdates", params)
 
-            for update in result.get(
-                "result",
-                []
-            ):
-
-                offset = (
-                    update["update_id"]
-                    + 1
-                )
+            for update in result.get("result", []):
+                offset = update["update_id"] + 1
 
                 if "message" in update:
-
-                    handle_message(
-                        update["message"]
-                    )
+                    handle_message(update["message"])
 
                 elif "callback_query" in update:
-
-                    handle_callback(
-                        update[
-                            "callback_query"
-                        ]
-                    )
+                    handle_callback(update["callback_query"])
 
         except Exception as e:
-
-            print(
-                "Xato:",
-                e
-            )
-
+            print("Xato:", e)
             time.sleep(5)
 
 
