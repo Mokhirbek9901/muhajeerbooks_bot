@@ -275,7 +275,49 @@ def cart_text(chat_id):
     )
 
     return "\n".join(lines)
+    return "\n".join(lines)
 
+
+def cart_keyboard(chat_id):
+    cart = carts.get(chat_id, {})
+
+    if not cart:
+        return {
+            "inline_keyboard": [
+                [{"text": "📚 Kitoblar", "callback_data": "books"}],
+                [{"text": "🏠 Bosh menyu", "callback_data": "home"}]
+            ]
+        }
+
+    buttons = []
+
+    for book_id, qty in cart.items():
+        book = find_book(book_id)
+
+        if not book:
+            continue
+
+        buttons.append([
+            {"text": "➖", "callback_data": f"cartminus_{book_id}"},
+            {"text": f"{qty} ta", "callback_data": "cart_noop"},
+            {"text": "➕", "callback_data": f"cartplus_{book_id}"},
+            {"text": "🗑 O‘chirish", "callback_data": f"cartdelete_{book_id}"}
+        ])
+
+    buttons.append([
+        {"text": "🗑 Barchasini tozalash", "callback_data": "cartclear"}
+    ])
+
+    buttons.append([
+        {"text": "⬅️ Orqaga", "callback_data": "home"}
+    ])
+
+    return {"inline_keyboard": buttons}
+
+
+# =========================
+# ADMIN KITOBLAR
+# =========================
 
 # =========================
 # ADMIN KITOBLAR
