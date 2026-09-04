@@ -304,14 +304,23 @@ def order_cart_keyboard(chat_id):
     return {"inline_keyboard": rows}
 
 
-def order_edit_keyboard():
-    return {"inline_keyboard": [
-        [{"text": "✏️ Ism", "callback_data": "orderedit_name"}, {"text": "📱 Telefon", "callback_data": "orderedit_phone"}],
-        [{"text": "📍 Manzil", "callback_data": "orderedit_address"}, {"text": "🛒 Savat", "callback_data": "orderedit_cart"}],
-        [{"text": "✅ Tasdiqlash", "callback_data": "order_confirm_cb"}],
-        [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}]
-    ]}
+def order_edit_keyboard(state=None):
+    paid_declared = bool((state or {}).get("payment_declared", False))
 
+    buttons = [
+        [{"text": "✏️ Ism", "callback_data": "orderedit_name"},
+         {"text": "📱 Telefon", "callback_data": "orderedit_phone"}],
+        [{"text": "📍 Manzil", "callback_data": "orderedit_address"},
+         {"text": "🛒 Savat", "callback_data": "orderedit_cart"}],
+    ]
+
+    if paid_declared:
+        buttons.append([{"text": "✅ Tasdiqlash", "callback_data": "order_confirm_cb"}])
+    else:
+        buttons.append([{"text": "💳 To‘lov qildim", "callback_data": "order_payment_done"}])
+
+    buttons.append([{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}])
+    return {"inline_keyboard": buttons}
 
 def order_status_keyboard():
     return {"inline_keyboard": [[{"text": "🔎 Buyurtma raqami bilan tekshirish", "callback_data": "order_lookup"}], [{"text": "🏠 Bosh menyu", "callback_data": "home"}]]}
@@ -775,6 +784,88 @@ def admin_order_status_keyboard(order_id, status):
         buttons.append([{ "text":"✅ Yetkazildi", "callback_data":f"deliver_{order_id}" }])
     buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
     return {"inline_keyboard":buttons}
+
+
+# =========================
+# BUYURTMANI YAKUNLASH
+# =========================
+
+def finalize_order(chat_id):
+    state = states.get(chat_id)
+
+    if not state or state.get("action") != "order_confirm":
+        send(chat_id, "⚠️ Buyurtma tasdiqlash holatida emas.", main_menu(chat_id))
+        return
+
+    if not state.get("payment_declared", False):
+        send(chat_id, "💳 Avval to‘lovni amalga oshiring va «💳 To‘lov qildim» tugmasini bosing.",
+             order_edit_keyboard(state))
+        return
+
+    cart = state.get("cart", {})
+    if not cart:
+        states.pop(chat_id, None)
+        carts[chat_id] = {}
+        send(chat_id, "🛒 Savat bo‘sh. Buyurtma yaratilmadi.", main_menu(chat_id))
+        return
+
+    for book_id, qty in cart.items():
+        book = find_book(book_id)
+        if not book or int(book.get("stock", 0)) < int(qty):
+            states.pop(chat_id, None)
+            send(chat_id, "❌ Buyurtmadagi kitoblardan biri hozir yetarli qolmagan.", main_menu(chat_id))
+            return
+
+    _, total, grand_total = order_preview_text(state)
+
+    order_id = str(int(time.time() * 1000))
+    while order_id in orders:
+        time.sleep(0.001)
+        order_id = str(int(time.time() * 1000))
+
+    order = {
+        "order_id": order_id,
+        "chat_id": chat_id,
+        "username": state.get("username", ""),
+        "name": state.get("name", ""),
+        "phone": state.get("phone", ""),
+        "address": state.get("address", ""),
+        "cart": {str(k): int(v) for k, v in cart.items()},
+        "total": int(total),
+        "delivery_fee": int(DELIVERY_FEE),
+        "grand_total": int(grand_total),
+        "status": "pending",
+        "payment_declared": True,
+        "created_at": datetime.now().isoformat(timespec="seconds")
+    }
+
+    orders[order_id] = order
+    save_orders()
+    carts[chat_id] = {}
+    states.pop(chat_id, None)
+
+    send(chat_id,
+         f"✅ Buyurtmangiz qabul qilindi!\n\n"
+         f"🔢 Buyurtma №{order_id}\n"
+         f"💵 Jami: ₩{grand_total:,}\n"
+         f"🟡 Holati: To‘lov kutilmoqda.\n\n"
+         "Admin to‘lovni tekshiradi va tasdiqlagach buyurtma jo‘natish bosqichiga o‘tadi.",
+         main_menu(chat_id))
+
+    if ADMIN_ID:
+        try:
+            items = []
+            for bid, qty in order["cart"].items():
+                b = find_book(int(bid))
+                items.append(f"• {b['name'] if b else 'Kitob'} × {qty}")
+            send(int(ADMIN_ID),
+                 f"🆕 YANGI BUYURTMA №{order_id}\n\n"
+                 f"👤 {order['name']}\n📱 {order['phone']}\n📍 {order['address']}\n"
+                 f"💵 Jami: ₩{grand_total:,}\n"
+                 f"💳 Mijoz «To‘lov qildim» deb tasdiqladi.\n\n" + "\n".join(items),
+                 admin_order_status_keyboard(order_id, "pending"))
+        except Exception as e:
+            print("Adminga buyurtma yuborish xatosi:", e)
 
 
 # =========================
@@ -1285,7 +1376,8 @@ def handle_message(message):
         states[chat_id] = {
             "action": "order_name",
             "username": username,
-            "cart": dict(cart)
+            "cart": dict(cart),
+            "payment_declared": False
         }
 
         send(
@@ -1396,7 +1488,7 @@ def handle_message(message):
         state[key] = text
         preview, total, grand = order_preview_text(state)
         state["total"], state["grand_total"], state["action"] = total, grand, "order_confirm"
-        send(chat_id, preview, order_edit_keyboard())
+        send(chat_id, preview, order_edit_keyboard(state))
         return
 
     # =========================
@@ -1411,7 +1503,7 @@ def handle_message(message):
         if text == "✅ Buyurtmani tasdiqlash":
             finalize_order(chat_id)
             return
-        send(chat_id, "Buyurtmani tugmalar orqali tahrirlang yoki tasdiqlang.", order_edit_keyboard())
+        send(chat_id, "Buyurtmani tugmalar orqali tahrirlang yoki tasdiqlang.", order_edit_keyboard(state))
         return
 
     if state and state.get("action") == "lookup_order":
@@ -1509,6 +1601,9 @@ def handle_callback(callback):
             if cart[book_id] <= 0:
                 del cart[book_id]
 
+        if states.get(chat_id, {}).get("action") == "order_confirm":
+            states[chat_id]["cart"] = dict(cart)
+
         try:
             edit_message(
                 chat_id,
@@ -1556,6 +1651,9 @@ def handle_callback(callback):
 
         cart[book_id] = current + 1
 
+        if states.get(chat_id, {}).get("action") == "order_confirm":
+            states[chat_id]["cart"] = dict(cart)
+
         try:
             edit_message(
                 chat_id,
@@ -1583,6 +1681,9 @@ def handle_callback(callback):
         if book_id in cart:
             del cart[book_id]
 
+        if states.get(chat_id, {}).get("action") == "order_confirm":
+            states[chat_id]["cart"] = dict(cart)
+
         try:
             edit_message(
                 chat_id,
@@ -1601,6 +1702,9 @@ def handle_callback(callback):
 
     if data == "cartclear":
         carts[chat_id] = {}
+
+        if states.get(chat_id, {}).get("action") == "order_confirm":
+            states[chat_id]["cart"] = {}
 
         try:
             edit_message(
@@ -1832,9 +1936,29 @@ def handle_callback(callback):
         send(chat_id, "Buyurtma bekor qilindi.", main_menu(chat_id))
         return
 
+    if data == "order_payment_done":
+        state = states.get(chat_id)
+        if not state or state.get("action") != "order_confirm":
+            return
+        state["payment_declared"] = True
+        preview, total, grand = order_preview_text(state)
+        state["total"] = total
+        state["grand_total"] = grand
+        send(chat_id,
+             preview + "\n\n💳 To‘lov qilganingiz belgilandi.\n"
+             "Endi ma’lumotlarni tekshirib «✅ Tasdiqlash» tugmasini bosing.",
+             order_edit_keyboard(state))
+        return
+
     if data == "order_confirm_cb":
-        if states.get(chat_id, {}).get("action") == "order_confirm":
-            finalize_order(chat_id)
+        state = states.get(chat_id)
+        if not state or state.get("action") != "order_confirm":
+            return
+        if not state.get("payment_declared", False):
+            send(chat_id, "💳 Avval «💳 To‘lov qildim» tugmasini bosing.",
+                 order_edit_keyboard(state))
+            return
+        finalize_order(chat_id)
         return
 
     if data in ("orderedit_name", "orderedit_phone", "orderedit_address"):
@@ -1848,16 +1972,21 @@ def handle_callback(callback):
     if data == "orderedit_cart":
         state = states.get(chat_id)
         if state and state.get("cart"):
+            carts[chat_id] = dict(state["cart"])
             send(chat_id, "🛒 Savatni o‘zgartiring:", order_cart_keyboard(chat_id))
+        elif state:
+            send(chat_id, "🛒 Buyurtmadagi savat bo‘sh.", order_edit_keyboard(state))
         return
 
     if data == "orderback_cart":
         state = states.get(chat_id)
         if state:
+            state["cart"] = dict(carts.get(chat_id, state.get("cart", {})))
             preview, total, grand = order_preview_text(state)
             state["total"], state["grand_total"], state["action"] = total, grand, "order_confirm"
-            send(chat_id, preview, order_edit_keyboard())
+            send(chat_id, preview, order_edit_keyboard(state))
         return
+
 
     # =========================
     # BOOK DETAIL
