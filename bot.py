@@ -18,6 +18,7 @@ ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 FAVORITES_FILE = os.path.join(DATA_DIR, "favorites.json")
 RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
+RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 LOW_STOCK_LIMIT = 2
 
 # =========================
@@ -49,6 +50,7 @@ orders = {}
 users = {}
 favorites = {}
 ratings = {}
+restock_subscribers = {}
 
 
 # =========================
@@ -214,6 +216,28 @@ def load_ratings():
         save_ratings()
 
 
+def save_restock():
+    try:
+        with open(RESTOCK_FILE, "w", encoding="utf-8") as f:
+            json.dump(restock_subscribers, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Restock save xatosi:", e)
+
+
+def load_restock():
+    global restock_subscribers
+    try:
+        with open(RESTOCK_FILE, "r", encoding="utf-8") as f:
+            restock_subscribers = json.load(f)
+    except Exception:
+        restock_subscribers = {}
+        save_restock()
+
+
+
+
+
+
 def book_rating(book_id):
     values = []
     for item in ratings.values():
@@ -249,6 +273,80 @@ def price_text(book):
     if old > price > 0:
         return f"💰 Eski narx: ₩{old:,}\n🔥 Hozir: ₩{price:,}"
     return f"💰 Narx: ₩{price:,}"
+
+
+def subscribe_restock(chat_id, book_id):
+    key = str(book_id)
+    users_list = set(str(x) for x in restock_subscribers.get(key, []))
+    users_list.add(str(chat_id))
+    restock_subscribers[key] = sorted(users_list)
+    save_restock()
+
+
+def notify_restock(book):
+    key = str(book.get("id"))
+    targets = restock_subscribers.get(key, [])
+    if not targets or int(book.get("stock", 0)) <= 0:
+        return
+    sent_targets = []
+    for uid in targets:
+        try:
+            send(int(uid), f"🔔 YAXSHI YANGILIK!\n\n📖 {book['name']} qayta sotuvda!\n📦 Omborda: {int(book['stock'])} ta\n\nKitobni ko‘rish uchun botga kiring.", book_detail_keyboard(book, int(uid)))
+            sent_targets.append(str(uid))
+        except Exception as e:
+            print("Restock xatosi:", uid, e)
+    restock_subscribers.pop(key, None)
+    save_restock()
+
+
+def best_sellers():
+    sold = {}
+    for o in orders.values():
+        if o.get("status") in ("paid", "shipped", "delivered"):
+            for bid, qty in o.get("cart", {}).items():
+                try:
+                    sold[int(bid)] = sold.get(int(bid), 0) + int(qty)
+                except Exception:
+                    pass
+    return sorted(sold.items(), key=lambda x: x[1], reverse=True)
+
+
+def best_sellers_keyboard(limit=10):
+    buttons = []
+    for bid, qty in best_sellers()[:limit]:
+        b = find_book(bid)
+        if b:
+            buttons.append([{"text": f"🏆 {b['name']} — {qty} dona", "callback_data": f"book_{b['id']}"}])
+    buttons.append([{ "text": "🏠 Bosh menyu", "callback_data": "home" }])
+    return {"inline_keyboard": buttons}
+
+
+
+
+
+
+
+
+
+
+
+
+def order_receipt_text(order):
+    lines=["🧾 BUYURTMA CHEKI","",f"🔢 Buyurtma №{order.get('order_id')}",f"👤 {order.get('name','')}",f"📱 {order.get('phone','')}",f"📍 {order.get('address','')}",""]
+    total=0
+    for bid,qty in order.get("cart",{}).items():
+        book=find_book(bid)
+        if not book: continue
+        subtotal=effective_price(book)*int(qty); total+=subtotal
+        lines.append(f"📖 {book['name']} × {qty} — ₩{subtotal:,}")
+    delivery=int(order.get("delivery_fee",DELIVERY_FEE)); discount=int(order.get("discount",0)); grand=int(order.get("grand_total",total+delivery-discount))
+    lines += ["",f"💰 Kitoblar: ₩{total:,}",f"🚚 Yetkazib berish: ₩{delivery:,}"]
+    if discount: lines.append(f"🎁 Chegirma: ₩{discount:,}")
+    lines += [f"💵 JAMI: ₩{grand:,}","",f"Holati: {status_name(order.get('status'))}"]
+    return "\n".join(lines)
+
+
+
 
 
 def status_name(status):
@@ -321,6 +419,11 @@ def book_detail_keyboard(book, chat_id):
     if int(book.get("stock", 0)) > 0 and int(book.get("price", 0)) > 0:
         buttons.append([{ "text": "⚡ Hozir sotib olish", "callback_data": f"fastbuy_{book['id']}" }])
         buttons.append([{ "text": "🛒 Savatga qo‘shish", "callback_data": f"addcart_{book['id']}" }])
+    elif int(book.get("stock", 0)) <= 0:
+        if str(chat_id) in [str(x) for x in restock_subscribers.get(str(book["id"]), [])]:
+            buttons.append([{ "text": "🔔 Xabar berish yoqilgan", "callback_data": "cart_noop" }])
+        else:
+            buttons.append([{ "text": "🔔 Kelganda xabar bering", "callback_data": f"restock_{book['id']}" }])
     buttons.append([{ "text": fav_text, "callback_data": f"fav_{book['id']}" }])
     buttons.append([{ "text": "📚 Kitoblar", "callback_data": "books" }, {"text": "🏠 Bosh menyu", "callback_data": "home"}])
     return {"inline_keyboard": buttons}
@@ -410,6 +513,7 @@ def main_menu(chat_id):
         [{"text": "📚 Kitoblar"}, {"text": "📂 Kategoriyalar"}],
         [{"text": "🔎 Qidirish"}, {"text": "❤️ Sevimlilar"}],
         [{"text": "🔥 Tavsiya etilgan"}, {"text": "🆕 Yangi kitoblar"}],
+        [{"text": "🏆 Eng ko‘p sotilgan"}],
         [{"text": "🛒 Savatcha"}, {"text": "📜 Mening buyurtmalarim"}],
         [{"text": "🔢 Buyurtmani tekshirish"}],
         [{"text": "📦 Zakaz berish"}, {"text": "📞 Bog‘lanish"}],
@@ -427,7 +531,7 @@ def main_menu(chat_id):
 def admin_menu():
     return {
         "keyboard": [
-            [{"text": "📚 Kitoblar ro‘yxati"}],
+            [{"text": "📚 Kitoblar ro‘yxati"}, {"text": "🔎 Kitob qidirish"}],
             [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
@@ -510,31 +614,20 @@ def new_books_keyboard():
     buttons.append([{"text": "🏠 Bosh menyu", "callback_data": "home"}])
     return {"inline_keyboard": buttons}
 
+
+
+
+
 def cart_text(chat_id):
-    cart = carts.get(chat_id, {})
-
-    if not cart:
-        return "🛒 Savatcha bo‘sh."
-
-    lines = ["🛒 Savatchangiz:\n"]
-    total = 0
-
-    for book_id, qty in cart.items():
-        book = find_book(book_id)
-
-        if not book:
-            continue
-
-        subtotal = effective_price(book) * int(qty)
-        total += subtotal
-
-        lines.append(
-            f"📖 {book['name']} × {qty} = ₩{effective_price(book)*int(qty):,}"
-        )
-
-    lines.append(f"\n💰 Kitoblar jami: ₩{total:,}")
-
-    return "\n".join(lines)
+    cart=carts.get(chat_id,{})
+    if not cart: return "🛒 Savatcha bo‘sh."
+    lines=[]; total=0
+    for book_id,qty in cart.items():
+        book=find_book(book_id)
+        if not book: continue
+        subtotal=effective_price(book)*int(qty); total+=subtotal
+        lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
+    return "🛒 Savatchangiz:\n\n"+"\n".join(lines)+f"\n\n💰 Kitoblar jami: ₩{total:,}"
 
 
 def cart_keyboard(chat_id):
@@ -659,62 +752,29 @@ def edit_fields_menu(book_id):
 # =========================
 
 def calculate_cart(chat_id):
-    cart = carts.get(chat_id, {})
-    lines = []
-    total = 0
+    cart=carts.get(chat_id,{})
+    lines=[]; total=0
+    for book_id,qty in cart.items():
+        book=find_book(book_id)
+        if not book: continue
+        subtotal=effective_price(book)*int(qty); total+=subtotal
+        lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
+    return lines,total
 
-    for book_id, qty in cart.items():
-        book = find_book(book_id)
-
-        if not book:
-            continue
-
-        subtotal = effective_price(book) * int(qty)
-        total += subtotal
-
-        lines.append(
-            f"📖 {book['name']} × {qty} = ₩{effective_price(book)*int(qty):,}"
-        )
-
-    return lines, total
 
 
 def order_preview_text(state):
-    lines = []
-    total = 0
+    lines=[]; total=0
+    for book_id,qty in state.get("cart",{}).items():
+        book=find_book(book_id)
+        if not book: continue
+        subtotal=effective_price(book)*int(qty); total+=subtotal
+        lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
+    grand_total=total+DELIVERY_FEE
+    text=("🧾 BUYURTMANGIZ\n\n"+"\n".join(lines)+f"\n\n💰 Kitoblar: ₩{total:,}"+f"\n🚚 택배 +₩{DELIVERY_FEE:,}"+f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}\n\n"+"💳 TO‘LOV MA‘LUMOTLARI\n"+f"💳 Karta raqami: {CARD_NUMBER}\n"+f"🏦 {BANK_NAME}\n"+f"👤 {CARD_OWNER}\n\n"+"⚠️ Iltimos, jami summani yuqoridagi karta raqamiga o‘tkazing.\n\n"+"To‘lovni amalga oshirgach, «💳 To‘lov qildim» tugmasini bosing.")
+    return text,total,grand_total
 
-    for book_id, qty in state["cart"].items():
-        book = find_book(book_id)
 
-        if not book:
-            continue
-
-        subtotal = effective_price(book) * int(qty)
-        total += subtotal
-
-        lines.append(
-            f"📖 {book['name']} × {qty} = ₩{effective_price(book)*int(qty):,}"
-        )
-
-    grand_total = total + DELIVERY_FEE
-
-    text = (
-        "🧾 BUYURTMANGIZ\n\n"
-        + "\n".join(lines)
-        + f"\n\n💰 Kitoblar: ₩{total:,}"
-        + f"\n🚚 택배 +₩{DELIVERY_FEE:,}"
-        + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}\n\n"
-        "💳 TO‘LOV MA’LUMOTLARI\n"
-        f"💳 Karta raqami: {CARD_NUMBER}\n"
-        f"🏦 {BANK_NAME}\n"
-        f"👤 {CARD_OWNER}\n\n"
-        "⚠️ Iltimos, jami summani yuqoridagi "
-        "karta raqamiga o‘tkazing.\n\n"
-        "To‘lovni amalga oshirgach, "
-        "«✅ Buyurtmani tasdiqlash» tugmasini bosing."
-    )
-
-    return text, total, grand_total
 
 
 # =========================
@@ -945,13 +1005,7 @@ def admin_orders_keyboard():
 
 
 def admin_order_detail(order):
-    lines=[]
-    for bid,qty in order.get("cart",{}).items():
-        b=find_book(bid)
-        if b: lines.append(f"• {b['name']} × {qty}")
-    return (f"🧾 BUYURTMA №{order['order_id']}\n\n" f"{status_name(order.get('status'))}\n"
-            f"👤 {order.get('name','')}\n📞 {order.get('phone','')}\n📍 {order.get('address','')}\n\n"
-            + "\n".join(lines) + f"\n\n💵 ₩{int(order.get('grand_total',0)):,}")
+    return order_receipt_text(order)
 
 
 def admin_order_status_keyboard(order_id, status):
@@ -1015,6 +1069,7 @@ def finalize_order(chat_id):
         "total": int(total),
         "delivery_fee": int(DELIVERY_FEE),
         "grand_total": int(grand_total),
+        "discount": 0,
         "status": "pending",
         "payment_declared": True,
         "created_at": datetime.now().isoformat(timespec="seconds")
@@ -1026,11 +1081,9 @@ def finalize_order(chat_id):
     states.pop(chat_id, None)
 
     send(chat_id,
-         f"✅ Buyurtmangiz qabul qilindi!\n\n"
-         f"🔢 Buyurtma №{order_id}\n"
-         f"💵 Jami: ₩{grand_total:,}\n"
-         f"🟡 Holati: To‘lov kutilmoqda.\n\n"
-         "Admin to‘lovni tekshiradi va tasdiqlagach buyurtma jo‘natish bosqichiga o‘tadi.",
+         "✅ BUYURTMANGIZ QABUL QILINDI!\n\n" + order_receipt_text(order) +
+         "\n\n💳 To‘lov admin tomonidan tekshiriladi.\n"
+         "Tasdiqlangach buyurtma jo‘natish bosqichiga o‘tadi.",
          main_menu(chat_id))
 
     if ADMIN_ID:
@@ -1164,6 +1217,11 @@ def handle_message(message):
             )
             return
 
+        if text == "🔎 Kitob qidirish":
+            states[chat_id] = {"action": "admin_search"}
+            send(chat_id, "🔎 Qidiriladigan kitob nomini, muallifini yoki kategoriyasini yozing:\n\n❌ Bekor qilish", {"keyboard":[[{"text":"❌ Bekor qilish"}]],"resize_keyboard":True})
+            return
+
         if text == "📦 Ombor":
             lines = ["📦 Ombor qoldig‘i:"]
 
@@ -1216,6 +1274,19 @@ def handle_message(message):
 
         if state:
             action = state.get("action")
+
+            if action == "admin_search":
+                result = search_books(text)
+                states.pop(chat_id, None)
+                if not result:
+                    send(chat_id, f"🔎 «{text}» bo‘yicha kitob topilmadi.", admin_menu())
+                else:
+                    buttons = []
+                    for b in result[:30]:
+                        buttons.append([{"text": f"✏️ #{b['id']} {b['name']}", "callback_data": f"edit_{b['id']}"}])
+                    buttons.append([{ "text":"⬅️ Admin panel", "callback_data":"admin" }])
+                    send(chat_id, f"🔎 Topildi: {len(result)} ta", {"inline_keyboard":buttons})
+                return
 
             if action == "broadcast":
                 if text == "❌ Bekor qilish":
@@ -1440,8 +1511,11 @@ def handle_message(message):
                         )
                         return
 
+                    old_stock = int(book.get("stock", 0))
                     book["stock"] = value
                     msg = f"✅ Yangi qoldiq: {value} ta"
+                    if old_stock <= 0 < value:
+                        notify_restock(book)
 
                 save_books()
                 states.pop(chat_id, None)
@@ -1462,6 +1536,7 @@ def handle_message(message):
             "❤️ Sevimlilar",
             "🔥 Tavsiya etilgan",
             "🆕 Yangi kitoblar",
+            "🏆 Eng ko‘p sotilgan",
             "🛒 Savatcha",
             "📜 Mening buyurtmalarim",
             "🔢 Buyurtmani tekshirish",
@@ -1506,6 +1581,13 @@ def handle_message(message):
 
     if text == "🆕 Yangi kitoblar":
         send(chat_id, "🆕 YANGI QO‘SHILGAN KITOBLAR", new_books_keyboard())
+        return
+
+    if text == "🏆 Eng ko‘p sotilgan":
+        if not best_sellers():
+            send(chat_id, "🏆 Hozircha sotuvlar yetarli emas.", main_menu(chat_id))
+        else:
+            send(chat_id, "🏆 ENG KO‘P SOTILGAN KITOBLAR", best_sellers_keyboard())
         return
 
     # =========================
@@ -1575,6 +1657,7 @@ def handle_message(message):
         states[chat_id] = {
             "action": "order_name",
             "username": username,
+            "chat_id": chat_id,
             "cart": dict(cart),
             "payment_declared": False
         }
@@ -1800,8 +1883,9 @@ def handle_callback(callback):
             if cart[book_id] <= 0:
                 del cart[book_id]
 
-        if states.get(chat_id, {}).get("action") == "order_confirm":
-            states[chat_id]["cart"] = dict(cart)
+        if states.get(chat_id):
+            if states[chat_id].get("action") == "order_confirm":
+                states[chat_id]["cart"] = dict(cart)
 
         try:
             edit_message(
@@ -1850,8 +1934,9 @@ def handle_callback(callback):
 
         cart[book_id] = current + 1
 
-        if states.get(chat_id, {}).get("action") == "order_confirm":
-            states[chat_id]["cart"] = dict(cart)
+        if states.get(chat_id):
+            if states[chat_id].get("action") == "order_confirm":
+                states[chat_id]["cart"] = dict(cart)
 
         try:
             edit_message(
@@ -1880,8 +1965,9 @@ def handle_callback(callback):
         if book_id in cart:
             del cart[book_id]
 
-        if states.get(chat_id, {}).get("action") == "order_confirm":
-            states[chat_id]["cart"] = dict(cart)
+        if states.get(chat_id):
+            if states[chat_id].get("action") == "order_confirm":
+                states[chat_id]["cart"] = dict(cart)
 
         try:
             edit_message(
@@ -1902,8 +1988,9 @@ def handle_callback(callback):
     if data == "cartclear":
         carts[chat_id] = {}
 
-        if states.get(chat_id, {}).get("action") == "order_confirm":
-            states[chat_id]["cart"] = {}
+        if states.get(chat_id):
+            if states[chat_id].get("action") == "order_confirm":
+                states[chat_id]["cart"] = {}
 
         try:
             edit_message(
@@ -2095,10 +2182,36 @@ def handle_callback(callback):
     # =========================
 
     if data.startswith("none_"):
-        send(
-            chat_id,
-            "❌ Bu kitob hozircha mavjud emas."
-        )
+        try:
+            book_id = int(data.split("_", 1)[1])
+        except Exception:
+            return
+        book = find_book(book_id)
+        if not book:
+            return
+        subscribed = str(chat_id) in [str(x) for x in restock_subscribers.get(str(book_id), [])]
+        if subscribed:
+            text = f"❌ {book['name']} hozircha mavjud emas.\n\n🔔 Siz qayta kelganda xabar olishga allaqachon yozilgansiz."
+            kb = {"inline_keyboard":[[{"text":"📖 Batafsil", "callback_data":f"book_{book_id}"}],[{"text":"🏠 Bosh menyu","callback_data":"home"}]]}
+        else:
+            text = f"❌ {book['name']} hozircha mavjud emas.\n\n🔔 Xohlasangiz, qayta kelganda sizga xabar beramiz."
+            kb = {"inline_keyboard":[[{"text":"🔔 Kelganda xabar bering", "callback_data":f"restock_{book_id}"}],[{"text":"🏠 Bosh menyu","callback_data":"home"}]]}
+        send(chat_id, text, kb)
+        return
+
+    if data.startswith("restock_"):
+        try:
+            book_id = int(data.split("_", 1)[1])
+        except Exception:
+            return
+        book = find_book(book_id)
+        if not book:
+            return
+        if int(book.get("stock", 0)) > 0:
+            send(chat_id, "✅ Bu kitob hozir mavjud.", book_detail_keyboard(book, chat_id))
+            return
+        subscribe_restock(chat_id, book_id)
+        send(chat_id, f"🔔 Tayyor! {book['name']} qayta kelganda sizga xabar beramiz.", main_menu(chat_id))
         return
 
     # =========================
@@ -2273,6 +2386,7 @@ def handle_callback(callback):
         states[chat_id] = {
             "action": "order_name",
             "username": users.get(str(chat_id), {}).get("username", ""),
+            "chat_id": chat_id,
             "cart": {book_id: 1},
             "payment_declared": False,
             "fast_buy": True
@@ -2484,7 +2598,7 @@ def main():
     load_users()
     load_favorites()
     load_ratings()
-    load_users()
+    load_restock()
 
     offset = None
 
