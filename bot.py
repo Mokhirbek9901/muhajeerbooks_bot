@@ -1090,18 +1090,29 @@ def finalize_order(chat_id):
             send(chat_id, "❌ Buyurtmadagi kitoblardan biri hozir yetarli qolmagan.", main_menu(chat_id))
             return
 
-    _, total, grand_total = order_preview_text(state)
+    # To‘lov e’lon qilingan paytdagi summa va narxlarni muzlatib qo‘yamiz.
+    # Admin keyin narxni o‘zgartirsa ham shu buyurtma summasi o‘zgarmaydi.
+    payment_items = state.get("payment_items", [])
+    if not payment_items:
+        for book_id, qty in cart.items():
+            book = find_book(book_id)
+            if book:
+                payment_items.append({
+                    "book_id": str(book_id),
+                    "name": str(book.get("name", "Kitob")),
+                    "qty": int(qty),
+                    "unit_price": int(effective_price(book))
+                })
+
+    total = sum(int(item["unit_price"]) * int(item["qty"]) for item in payment_items)
+    grand_total = total + int(DELIVERY_FEE)
 
     order_id = str(int(time.time() * 1000))
     while order_id in orders:
         time.sleep(0.001)
         order_id = str(int(time.time() * 1000))
 
-    saved_items = []
-    for book_id, qty in cart.items():
-        book = find_book(book_id)
-        if book:
-            saved_items.append({"book_id": str(book_id), "name": str(book.get("name", "Kitob")), "qty": int(qty), "unit_price": int(effective_price(book))})
+    saved_items = [dict(item) for item in payment_items]
 
     order = {
         "order_id": order_id,
@@ -1153,6 +1164,9 @@ def finalize_order(chat_id):
 # =========================
 
 def handle_message(message):
+    # Har bir yangi xabarda books.json dan eng yangi ombor holatini yuklaymiz.
+    # Shu sabab admin qoldiqni o'zgartirgach, boshqa foydalanuvchilar ham yangi sonni ko'radi.
+    load_books()
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
 
@@ -1869,6 +1883,8 @@ def handle_message(message):
 # =========================
 
 def handle_callback(callback):
+    # Callback kelganda ham omborning eng yangi holatini yuklaymiz.
+    load_books()
     callback_id = callback["id"]
     message = callback.get("message", {})
     chat = message.get("chat", {})
@@ -1940,6 +1956,9 @@ def handle_callback(callback):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
                 states[chat_id]["payment_declared"] = False
+                states[chat_id].pop("payment_items", None)
+                states[chat_id].pop("payment_total", None)
+                states[chat_id].pop("payment_grand_total", None)
 
         try:
             edit_message(
@@ -1992,6 +2011,9 @@ def handle_callback(callback):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
                 states[chat_id]["payment_declared"] = False
+                states[chat_id].pop("payment_items", None)
+                states[chat_id].pop("payment_total", None)
+                states[chat_id].pop("payment_grand_total", None)
 
         try:
             edit_message(
@@ -2024,6 +2046,9 @@ def handle_callback(callback):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
                 states[chat_id]["payment_declared"] = False
+                states[chat_id].pop("payment_items", None)
+                states[chat_id].pop("payment_total", None)
+                states[chat_id].pop("payment_grand_total", None)
 
         try:
             edit_message(
@@ -2048,6 +2073,9 @@ def handle_callback(callback):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = {}
                 states[chat_id]["payment_declared"] = False
+                states[chat_id].pop("payment_items", None)
+                states[chat_id].pop("payment_total", None)
+                states[chat_id].pop("payment_grand_total", None)
 
         try:
             edit_message(
@@ -2331,10 +2359,28 @@ def handle_callback(callback):
         state = states.get(chat_id)
         if not state or state.get("action") != "order_confirm":
             return
+        # To‘lov bosilgan paytdagi narxlarni snapshot qilib saqlaymiz.
+        payment_items = []
+        for book_id, qty in state.get("cart", {}).items():
+            book = find_book(book_id)
+            if book:
+                payment_items.append({
+                    "book_id": str(book_id),
+                    "name": str(book.get("name", "Kitob")),
+                    "qty": int(qty),
+                    "unit_price": int(effective_price(book))
+                })
+
+        total = sum(int(item["unit_price"]) * int(item["qty"]) for item in payment_items)
+        grand = total + int(DELIVERY_FEE)
         state["payment_declared"] = True
-        preview, total, grand = order_preview_text(state, show_payment_info=False)
+        state["payment_items"] = payment_items
+        state["payment_total"] = total
+        state["payment_grand_total"] = grand
         state["total"] = total
         state["grand_total"] = grand
+
+        preview, _, _ = order_preview_text(state, show_payment_info=False)
         send(chat_id,
              preview + "\n\n💳 To‘lovingiz belgilandi.\n"
              "⚠️ Ma’lumotlarni tekshirib, «✅ Tasdiqlash» tugmasini bosing.",
