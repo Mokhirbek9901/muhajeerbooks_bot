@@ -1203,6 +1203,88 @@ def handle_callback(callback):
         )
 
         return
+            # SAVATCHA - KAMAYTIRISH
+    if data.startswith("cartminus_"):
+
+        book_id = int(data.split("_", 1)[1])
+        cart = carts.get(chat_id, {})
+
+        if book_id in cart:
+            cart[book_id] -= 1
+
+            if cart[book_id] <= 0:
+                del cart[book_id]
+
+        send(
+            chat_id,
+            cart_text(chat_id),
+            cart_keyboard(chat_id)
+        )
+        return
+
+
+    # SAVATCHA - KO‘PAYTIRISH
+    if data.startswith("cartplus_"):
+
+        book_id = int(data.split("_", 1)[1])
+        book = find_book(book_id)
+        cart = carts.setdefault(chat_id, {})
+
+        if not book:
+            return
+
+        current = int(cart.get(book_id, 0))
+
+        if current >= int(book["stock"]):
+            send(
+                chat_id,
+                f"❌ Omborda faqat {book['stock']} ta bor."
+            )
+            return
+
+        cart[book_id] = current + 1
+
+        send(
+            chat_id,
+            cart_text(chat_id),
+            cart_keyboard(chat_id)
+        )
+        return
+
+
+    # SAVATCHA - BITTA KITOBNI O‘CHIRISH
+    if data.startswith("cartdelete_"):
+
+        book_id = int(data.split("_", 1)[1])
+        cart = carts.get(chat_id, {})
+
+        if book_id in cart:
+            del cart[book_id]
+
+        send(
+            chat_id,
+            cart_text(chat_id),
+            cart_keyboard(chat_id)
+        )
+        return
+
+
+    # SAVATCHANI TO‘LIQ TOZALASH
+    if data == "cartclear":
+
+        carts[chat_id] = {}
+
+        send(
+            chat_id,
+            "🗑 Savatcha tozalandi.",
+            main_menu(chat_id)
+        )
+        return
+
+
+    # MIQDOR KO‘RSATKICHI
+    if data == "cart_noop":
+        return
 
     # =========================
     # ADMIN
