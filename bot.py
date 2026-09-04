@@ -108,8 +108,28 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
 # =========================
 
 def save_books():
-    with open(BOOKS_FILE, "w", encoding="utf-8") as f:
+    # Atomik yozish: boshqa process o'qiyotgan paytda books.json yarimta holatda qolmaydi.
+    tmp_file = BOOKS_FILE + ".tmp"
+    with open(tmp_file, "w", encoding="utf-8") as f:
         json.dump(books, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_file, BOOKS_FILE)
+
+
+def sync_book_stock_from_disk():
+    """Faqat qoldiqni diskdagi eng yangi books.json bilan sinxronlaydi."""
+    global books
+    try:
+        with open(BOOKS_FILE, "r", encoding="utf-8") as f:
+            disk_books = json.load(f)
+        disk_by_id = {str(b.get("id")): b for b in disk_books}
+        for b in books:
+            db = disk_by_id.get(str(b.get("id")))
+            if db is not None:
+                b["stock"] = int(db.get("stock", 0))
+    except Exception as e:
+        print("Stock sync xatosi:", e)
 
 
 def load_books():
@@ -1582,6 +1602,7 @@ def handle_message(message):
                         notify_restock(book)
 
                 save_books()
+                load_books()
                 states.pop(chat_id, None)
 
                 send(
