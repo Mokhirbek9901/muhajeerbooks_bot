@@ -271,41 +271,48 @@ def refresh_books():
     return books
 
 
+def normalize_cover(text):
+    value = str(text or "").strip().lower()
+
+    if value in ("-", "—", "ko‘rsatilmagan", "korsatilmagan"):
+        return "Ko‘rsatilmagan"
+
+    if value in ("qattiq", "hardcover", "hard cover"):
+        return "Qattiq"
+
+    if value in ("yumshoq", "softcover", "soft cover"):
+        return "Yumshoq"
+
+    if value in ("flexible", "flex"):
+        return "Flexible"
+
+    return None
+
+
+def normalize_category(value):
+    value = str(value or "").strip()
+    if value in ("", "-", "—", "Boshqa", "Boshqalar"):
+        return "Boshqalar"
+    return value
+
+
 def load_books():
     global books
 
-    file_exists = os.path.exists(BOOKS_FILE)
-
     try:
         with open(BOOKS_FILE, "r", encoding="utf-8") as f:
-            loaded = json.load(f)
-
-        if not isinstance(loaded, list):
-            raise ValueError("books.json ro‘yxat formatida emas")
-
-        # Faqat haqiqiy kitob yozuvlarini qabul qilamiz.
-        books = [b for b in loaded if isinstance(b, dict) and "id" in b and "name" in b]
-
-    except Exception as e:
-        # Fayl bor bo‘lsa, xato sababli uni DEFAULT_BOOKS bilan ustidan yozib yubormaymiz.
-        # Aks holda vaqtinchalik o‘qish xatosi qoldiqni 0 ga qaytarib qo‘yishi mumkin.
-        print("books.json o‘qish xatosi:", e)
-
-        if not file_exists:
-            books = [dict(b) for b in DEFAULT_BOOKS]
-            save_books()
-            return
-
-        # Oldingi xotiradagi ma’lumotni saqlaymiz. Dastlabki ishga tushishda esa bo‘sh qolmasin.
-        if not books:
-            books = [dict(b) for b in DEFAULT_BOOKS]
-            return
+            books = json.load(f)
+    except Exception:
+        books = DEFAULT_BOOKS[:]
 
     changed = False
     for b in books:
+        category = normalize_category(b.get("category", "Boshqalar"))
+        if b.get("category") != category:
+            b["category"] = category
+            changed = True
+
         defaults = {
-            "stock": 0,
-            "price": 0,
             "category": "Boshqalar",
             "author": "Ko‘rsatilmagan",
             "description": "Ma’lumot kiritilmagan.",
@@ -320,7 +327,7 @@ def load_books():
                 b[key] = value
                 changed = True
 
-    if changed or not file_exists:
+    if changed or not os.path.exists(BOOKS_FILE):
         save_books()
 
 
@@ -484,17 +491,29 @@ def subscribe_restock(chat_id, book_id):
 
 def notify_restock(book):
     key = str(book.get("id"))
-    targets = restock_subscribers.get(key, [])
+    targets = list(restock_subscribers.get(key, []))
     if not targets or int(book.get("stock", 0)) <= 0:
         return
-    sent_targets = []
+
+    failed_targets = []
     for uid in targets:
         try:
-            send(int(uid), f"🔔 YAXSHI YANGILIK!\n\n📖 {book['name']} qayta sotuvda!\n📦 Omborda: {int(book['stock'])} ta\n\nKitobni ko‘rish uchun botga kiring.", book_detail_keyboard(book, int(uid)))
-            sent_targets.append(str(uid))
+            send(
+                int(uid),
+                f"🔔 YAXSHI YANGILIK!\n\n"
+                f"📖 {book['name']} qayta sotuvda!\n"
+                f"📦 Omborda: {int(book['stock'])} ta\n\n"
+                "Kitobni ko‘rish uchun botga kiring.",
+                book_detail_keyboard(book, int(uid))
+            )
         except Exception as e:
+            failed_targets.append(str(uid))
             print("Restock xatosi:", uid, e)
-    restock_subscribers.pop(key, None)
+
+    if failed_targets:
+        restock_subscribers[key] = sorted(set(failed_targets))
+    else:
+        restock_subscribers.pop(key, None)
     save_restock()
 
 
@@ -594,10 +613,9 @@ def toggle_favorite(chat_id, book_id):
 
 
 def category_list():
-    refresh_books()
     cats = []
     for b in books:
-        c = str(b.get("category", "Boshqalar") or "Boshqalar").strip()
+        c = normalize_category(b.get("category", "Boshqalar"))
         if c not in cats:
             cats.append(c)
     return cats or ["Boshqalar"]
@@ -605,25 +623,13 @@ def category_list():
 
 def categories_keyboard():
     buttons = []
-    for c in category_list():
-        buttons.append([{"text": f"📂 {c}", "callback_data": "cat_" + urllib.parse.quote(c, safe="")[:50]}])
-    buttons.append([{ "text": "🏠 Bosh menyu", "callback_data": "home" }])
+    for i, c in enumerate(category_list()):
+        buttons.append([{
+            "text": f"📂 {c}",
+            "callback_data": f"catidx_{i}"
+        }])
+    buttons.append([{"text": "🏠 Bosh menyu", "callback_data": "home"}])
     return {"inline_keyboard": buttons}
-
-
-def normalize_cover(text):
-    """Kitob muqovasini yagona ko‘rinishga keltiradi."""
-    value = str(text or "").strip().lower()
-
-    if value in ("-", "—", "ko‘rsatilmagan", "korsatilmagan"):
-        return "Ko‘rsatilmagan"
-    if value in ("qattiq", "hardcover", "hard cover"):
-        return "Qattiq"
-    if value in ("yumshoq", "softcover", "soft cover"):
-        return "Yumshoq"
-    if value in ("flexible", "flex"):
-        return "Flexible"
-    return None
 
 
 def book_detail_text(book):
@@ -686,133 +692,21 @@ def favorites_keyboard(chat_id):
 
 
 def category_books_keyboard(category, chat_id):
-    items = [b for b in books if str(b.get("category", "Boshqalar")) == category]
+    category = normalize_category(category)
+    items = [
+        b for b in books
+        if normalize_category(b.get("category", "Boshqalar")) == category
+    ]
     buttons = []
     for b in items:
         stock = int(b.get("stock", 0))
         p = effective_price(b)
         icon = "📖" if stock > 0 and p > 0 else "❌"
-        buttons.append([{ "text": f"{icon} {b['name']} — ₩{p:,}", "callback_data": f"book_{b['id']}" }])
-    buttons.append([{ "text": "📂 Kategoriyalar", "callback_data": "categories" }])
+        label = f"{icon} {b['name']} — ₩{p:,}" if p else f"{icon} {b['name']}"
+        buttons.append([{"text": label, "callback_data": f"book_{b['id']}"}])
+    buttons.append([{"text": "📂 Kategoriyalar", "callback_data": "categories"}])
+    buttons.append([{"text": "🏠 Bosh menyu", "callback_data": "home"}])
     return {"inline_keyboard": buttons}
-
-
-# =========================
-# KITOB TAVSIYACHISI
-# =========================
-
-def recommender_interest_keyboard():
-    return {"inline_keyboard": [
-        [{"text": "🧠 Psixologiya", "callback_data": "rec_i_psixologiya"},
-         {"text": "💰 Biznes / Moliya", "callback_data": "rec_i_biznes"}],
-        [{"text": "❤️ Sevgi / Romantika", "callback_data": "rec_i_romantika"},
-         {"text": "🕵️ Detektiv / Sirli", "callback_data": "rec_i_detektiv"}],
-        [{"text": "🕌 Diniy", "callback_data": "rec_i_diniy"},
-         {"text": "🌍 Tarix / Dunyo", "callback_data": "rec_i_tarix"}],
-        [{"text": "🚀 Shaxsiy rivojlanish", "callback_data": "rec_i_rivojlanish"},
-         {"text": "🤷 Farqi yo‘q", "callback_data": "rec_i_any"}],
-        [{"text": "❌ Bekor qilish", "callback_data": "home"}]
-    ]}
-
-
-def recommender_style_keyboard():
-    return {"inline_keyboard": [
-        [{"text": "😊 Oson va qiziqarli", "callback_data": "rec_s_easy"},
-         {"text": "💭 Fikrlashga undasin", "callback_data": "rec_s_think"}],
-        [{"text": "❤️ Ta’sirli / Hayotiy", "callback_data": "rec_s_emotion"},
-         {"text": "🔥 Hayajonli", "callback_data": "rec_s_exciting"}],
-        [{"text": "🤷 Farqi yo‘q", "callback_data": "rec_s_any"}]
-    ]}
-
-
-def recommend_books(interest="any", style="any"):
-    refresh_books()
-    available = [b for b in books if int(b.get("stock", 0)) > 0 and int(b.get("price", 0)) > 0]
-    if not available:
-        return []
-
-    interest_words = {
-        "psixologiya": ["psixolog", "ruh", "inson", "xarakter", "ong", "muloqot", "his"],
-        "biznes": ["biznes", "moliya", "pul", "boy", "invest", "marketing", "tadbirkor"],
-        "romantika": ["sevgi", "muhabbat", "romantik", "romance", "qalb", "ayol", "erkak"],
-        "detektiv": ["detektiv", "sir", "jinoyat", "qotil", "tergov", "sarguzasht", "triller"],
-        "diniy": ["diniy", "islom", "sunniy", "fiqh", "aqida", "hadis", "qur'on", "quron", "musulmon"],
-        "tarix": ["tarix", "dunyo", "urush", "davlat", "siyosat", "tarixiy"],
-        "rivojlanish": ["rivoj", "motiv", "odat", "maqsad", "muvaffaq", "shaxsiy", "intizom", "o‘zini", "ozini"]
-    }
-    style_words = {
-        "easy": ["oson", "qiziqarli", "hikoya", "roman", "boshlovchi", "yengil"],
-        "think": ["falsafa", "fikr", "tafakkur", "savol", "psixolog", "tahlil", "falsafiy"],
-        "emotion": ["hayot", "ta'sir", "ta’sir", "yurak", "his", "oilaviy", "drama", "muhabbat"],
-        "exciting": ["detektiv", "sir", "jinoyat", "sarguzasht", "triller", "hayajon"]
-    }
-
-    def haystack(b):
-        return " ".join([
-            str(b.get("name", "")), str(b.get("author", "")),
-            str(b.get("category", "")), str(b.get("description", ""))
-        ]).lower()
-
-    scored = []
-    for b in available:
-        text = haystack(b)
-        score = 0
-        matched = []
-        if interest != "any":
-            hits = [w for w in interest_words.get(interest, []) if w in text]
-            score += len(hits) * 5
-            if hits:
-                matched.append("qiziqishingizga mos")
-        if style != "any":
-            hits = [w for w in style_words.get(style, []) if w in text]
-            score += len(hits) * 3
-            if hits:
-                matched.append("kitob uslubingizga mos")
-        # Admin tavsiya qilgan kitoblarga kichik ustunlik.
-        if b.get("recommended"):
-            score += 1
-        scored.append((score, b, matched))
-
-    best_score = max(x[0] for x in scored)
-    if best_score <= 1:
-        # Hech qanday aniq moslik topilmasa, mavjud kitoblardan random.
-        chosen = random.choice(available)
-        return [(chosen, ["tasodifiy tanlandi"])]
-
-    best = [(b, matched) for score, b, matched in scored if score == best_score]
-    # Bir xil darajadagi eng mos kitoblardan random tanlaymiz.
-    chosen = random.choice(best)
-    return [chosen]
-
-
-def recommender_result(chat_id, interest, style):
-    result = recommend_books(interest, style)
-    if not result:
-        send(chat_id, "😔 Hozircha tavsiya qilish uchun mavjud kitob topilmadi.", main_menu(chat_id))
-        return
-    book, reasons = result[0]
-    interest_names = {
-        "psixologiya": "Psixologiya", "biznes": "Biznes / Moliya",
-        "romantika": "Sevgi / Romantika", "detektiv": "Detektiv / Sirli",
-        "diniy": "Diniy", "tarix": "Tarix / Dunyo", "rivojlanish": "Shaxsiy rivojlanish",
-        "any": "Erkin tanlov"
-    }
-    style_names = {
-        "easy": "Oson va qiziqarli", "think": "Fikrlashga undaydigan",
-        "emotion": "Ta’sirli / Hayotiy", "exciting": "Hayajonli", "any": "Farqi yo‘q"
-    }
-    reason = " va ".join(reasons) if reasons else "siz uchun random tanlandi"
-    text = (
-        "🎯 SIZ UCHUN KITOB TANLADIK!\n\n"
-        f"📖 {book['name']}\n\n"
-        f"💡 Nega: {reason}.\n"
-        f"📂 Yo‘nalish: {interest_names.get(interest, interest)}\n"
-        f"✨ Uslub: {style_names.get(style, style)}\n\n"
-        f"{price_text(book)}\n"
-        f"📦 Omborda: {int(book.get('stock', 0))} dona\n\n"
-        f"📄 {str(book.get('description', 'Ma’lumot kiritilmagan.'))}"
-    )
-    send(chat_id, text, book_detail_keyboard(book, chat_id))
 
 
 def order_cart_keyboard(chat_id):
@@ -913,11 +807,9 @@ def admin_menu():
 
 def order_keyboard():
     return {
-        "keyboard": [
-            [{"text": "✅ Buyurtmani tasdiqlash"}],
-            [{"text": "❌ Bekor qilish"}],
-        ],
-        "resize_keyboard": True
+        "keyboard": [[{"text": "❌ Bekor qilish"}]],
+        "resize_keyboard": True,
+        "one_time_keyboard": True
     }
 
 
@@ -1150,38 +1042,47 @@ def calculate_cart(chat_id):
 
 
 def order_preview_text(state, show_payment_info=True):
-    lines=[]; total=0
+    lines = []
+    total = 0
+    payment_declared = bool(state.get("payment_declared", False))
+    saved_items = state.get("payment_items") if payment_declared else None
 
-    # To‘lov tasdiqlangach, foydalanuvchiga aynan to‘lov bosilgan paytdagi
-    # narxlar ko‘rsatiladi. Keyinchalik admin narxni o‘zgartirsa ham summa
-    # buyurtma ichida o‘zgarmaydi.
-    payment_items = state.get("payment_items", []) if state.get("payment_declared", False) else []
-    if payment_items:
-        for item in payment_items:
+    if isinstance(saved_items, list) and saved_items:
+        for item in saved_items:
+            name = str(item.get("name", "Kitob"))
             qty = int(item.get("qty", 0))
             unit_price = int(item.get("unit_price", 0))
-            name = str(item.get("name", "Kitob"))
             subtotal = unit_price * qty
             total += subtotal
             lines.append(f"📖 {name} × {qty} = ₩{subtotal:,}")
     else:
-        for book_id,qty in state.get("cart",{}).items():
-            book=find_book(book_id)
-            if not book: continue
-            subtotal=effective_price(book)*int(qty); total+=subtotal
+        for book_id, qty in state.get("cart", {}).items():
+            book = find_book(book_id)
+            if not book:
+                continue
+            subtotal = effective_price(book) * int(qty)
+            total += subtotal
             lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
 
-    grand_total=total+DELIVERY_FEE
-    text=("🧾 BUYURTMANGIZ\n\n"+"\n".join(lines)+f"\n\n💰 Kitoblar: ₩{total:,}"+f"\n🚚 Yetkazib berish: ₩{DELIVERY_FEE:,}"+f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}")
-    if show_payment_info:
-        text += ("\n\n💳 TO‘LOV MA‘LUMOTLARI\n"
-                 f"💳 Karta raqami: {CARD_NUMBER}\n"
-                 f"🏦 {BANK_NAME}\n"
-                 f"👤 {CARD_OWNER}\n\n"
-                 "⚠️ Iltimos, jami summani yuqoridagi karta raqamiga o‘tkazing.\n\n"
-                 "To‘lovni amalga oshirgach, «💳 To‘lov qildim» tugmasini bosing.")
-    return text,total,grand_total
+    grand_total = total + DELIVERY_FEE
+    text = (
+        "🧾 BUYURTMANGIZ\n\n"
+        + "\n".join(lines)
+        + f"\n\n💰 Kitoblar: ₩{total:,}"
+        + f"\n🚚 Yetkazib berish +₩{DELIVERY_FEE:,}"
+        + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}"
+    )
 
+    if show_payment_info:
+        text += (
+            "\n\n💳 TO‘LOV MA‘LUMOTLARI\n"
+            f"💳 Karta raqami: {CARD_NUMBER}\n"
+            f"🏦 {BANK_NAME}\n"
+            f"👤 {CARD_OWNER}\n\n"
+            "⚠️ Iltimos, jami summani yuqoridagi karta raqamiga o‘tkazing.\n\n"
+            "To‘lovni amalga oshirgach, «💳 To‘lov qildim» tugmasini bosing."
+        )
+    return text, total, grand_total
 
 
 
@@ -1330,6 +1231,7 @@ def admin_report_keyboard():
     ]}
 
 def admin_report_text(period="all"):
+    load_users()
     now = datetime.now()
 
     def included(o):
@@ -1605,6 +1507,74 @@ def finalize_order(chat_id):
 # MESSAGE HANDLER
 # =========================
 
+def recommender_interest_keyboard():
+    return {
+        "inline_keyboard": [
+            [{"text": "🧠 Psixologiya", "callback_data": "rec_i_psixologiya"}],
+            [{"text": "💼 Biznes", "callback_data": "rec_i_biznes"}],
+            [{"text": "❤️ Romantika", "callback_data": "rec_i_romantika"}],
+            [{"text": "🕵️ Detektiv", "callback_data": "rec_i_detektiv"}],
+            [{"text": "🕌 Diniy", "callback_data": "rec_i_diniy"}],
+            [{"text": "🏺 Tarix", "callback_data": "rec_i_tarix"}],
+            [{"text": "🌱 Rivojlanish", "callback_data": "rec_i_rivojlanish"}],
+            [{"text": "🎲 Farqi yo‘q", "callback_data": "rec_i_any"}],
+            [{"text": "🏠 Bosh menyu", "callback_data": "home"}]
+        ]
+    }
+
+
+def recommender_style_keyboard():
+    return {
+        "inline_keyboard": [
+            [{"text": "😊 Yengil va oson", "callback_data": "rec_s_easy"}],
+            [{"text": "🤔 O‘ylantiradigan", "callback_data": "rec_s_think"}],
+            [{"text": "🥹 Ta’sirli / hissiy", "callback_data": "rec_s_emotion"}],
+            [{"text": "🔥 Hayajonli", "callback_data": "rec_s_exciting"}],
+            [{"text": "🎲 Farqi yo‘q", "callback_data": "rec_s_any"}],
+            [{"text": "🏠 Bosh menyu", "callback_data": "home"}]
+        ]
+    }
+
+
+def recommender_result(chat_id, interest, style):
+    interest_map = {
+        "psixologiya": ["psixolog", "psixologiya", "ruh", "ong", "shaxsiyat"],
+        "biznes": ["biznes", "marketing", "moliya", "iqtisod", "tadbirkor", "startup", "startap"],
+        "romantika": ["romant", "sevgi", "muhabbat", "love"],
+        "detektiv": ["detektiv", "jinoyat", "sir", "triller", "tergov"],
+        "diniy": ["diniy", "islom", "islomiy", "sunniy", "aqida", "fiqh", "hadis", "qur'on", "quron"],
+        "tarix": ["tarix", "tarixiy", "urush", "saltanat", "imperiya"],
+        "rivojlanish": ["rivojlanish", "motivatsiya", "odat", "o‘zini", "ozini", "self", "success"]
+    }
+    style_map = {
+        "easy": ["oson", "yengil", "hikoya", "qissa", "roman"],
+        "think": ["falsafa", "fikr", "tafakkur", "psixolog", "tahlil", "intellekt", "aqida"],
+        "emotion": ["sevgi", "muhabbat", "romant", "hayot", "hiss", "ta'sir", "ta’sir"],
+        "exciting": ["detektiv", "jinoyat", "sir", "triller", "sarguzasht", "urush"]
+    }
+    def searchable(book):
+        return " ".join([str(book.get("name", "")), str(book.get("author", "")), str(book.get("category", "")), str(book.get("description", ""))]).lower()
+    available = [b for b in books if int(b.get("stock", 0)) > 0 and int(effective_price(b)) > 0]
+    if not available:
+        send(chat_id, "😔 Hozircha omborda mavjud kitoblar yo‘q.", main_menu(chat_id)); return
+    iw = interest_map.get(interest, []); sw = style_map.get(style, [])
+    scored=[]
+    for b in available:
+        t=searchable(b); score=0
+        if interest != "any": score += sum(5 for w in iw if w in t)
+        if style != "any": score += sum(2 for w in sw if w in t)
+        if b.get("recommended"): score += 1
+        avg,count=book_rating(b.get("id"))
+        if count: score += min(float(avg),5.0)*0.2
+        scored.append((score,b))
+    scored.sort(key=lambda x:(x[0],int(x[1].get("stock",0))), reverse=True)
+    matched=[b for score,b in scored if score>0]
+    result=(matched[:5] if matched else [b for _,b in scored[:5]])
+    buttons=[[{"text":f"📖 {b['name']} — ₩{effective_price(b):,}","callback_data":f"book_{b['id']}"}] for b in result]
+    buttons += [[{"text":"🎯 Qayta tanlash","callback_data":"recommend_again"}], [{"text":"🏠 Bosh menyu","callback_data":"home"}]]
+    send(chat_id, "🎯 SIZ UCHUN TAVSIYALAR\n\nSiz tanlagan qiziqish va uslubga eng yaqin kitoblar:", {"inline_keyboard":buttons})
+
+
 def handle_message(message):
     # Har bir yangi xabarda books.json dan eng yangi ombor holatini yuklaymiz.
     # Shu sabab admin qoldiqni o'zgartirgach, boshqa foydalanuvchilar ham yangi sonni ko'radi.
@@ -1796,29 +1766,23 @@ def handle_message(message):
             return
 
         if text == "📦 Ombor":
-            # Admin ham doim diskdagi eng yangi qoldiqni ko‘rsin.
-            refresh_books()
             lines = ["📦 Ombor qoldig‘i:"]
             total_stock = 0
+            total_value = 0
 
             for b in books:
                 stock = int(b.get("stock", 0))
+                price = effective_price(b)
                 total_stock += stock
-                lines.append(
-                    f"• {b['name']} — {stock} ta"
-                )
+                if stock > 0 and price > 0:
+                    total_value += stock * price
+                lines.append(f"• {b['name']} — {stock} ta")
 
-            lines.append(
-                f"\n📚 JAMI QOLGAN KITOBLAR: {total_stock} ta"
-            )
+            lines.append(f"\n📚 JAMI QOLGAN KITOBLAR: {total_stock} ta")
+            lines.append(f"💰 OMBORDAGI KITOBLAR QIYMATI: ₩{total_value:,}")
 
-            send(
-                chat_id,
-                "\n".join(lines),
-                admin_menu()
-            )
+            send(chat_id, "\n".join(lines), admin_menu())
             return
-
         if text == "➕ Kitob qo‘shish":
             states[chat_id] = {"action": "add_name"}
             send(
@@ -1970,7 +1934,7 @@ def handle_message(message):
                 return
 
             if action == "add_category":
-                state["category"] = "Boshqalar" if text.strip() in ("-", "—") else text
+                state["category"] = normalize_category(text)
                 state["action"] = "add_author"
                 send(chat_id, "✍️ Muallifini yozing. Bilinmasa: —")
                 return
@@ -2054,7 +2018,7 @@ def handle_message(message):
                         return
                     book["old_price"] = value
                 elif action == "change_category":
-                    book["category"] = "Boshqalar" if text.strip() in ("-", "—") else text
+                    book["category"] = normalize_category(text)
                 elif action == "change_cover":
                     cover = normalize_cover(text)
                     if cover is None:
@@ -2965,6 +2929,11 @@ def handle_callback(callback):
     # =========================
     # KITOB TAVSIYACHISI
     # =========================
+    if data == "recommend_again":
+        states[chat_id] = {"action": "recommend_interest"}
+        send(chat_id, "🎯 Avval ayting, qaysi mavzu sizni ko‘proq qiziqtiradi?", recommender_interest_keyboard())
+        return
+
     if data.startswith("rec_i_"):
         interest = data[6:]
         if interest not in {"psixologiya", "biznes", "romantika", "detektiv", "diniy", "tarix", "rivojlanish", "any"}:
@@ -2994,12 +2963,30 @@ def handle_callback(callback):
         send(chat_id, "📂 Kategoriyani tanlang:", categories_keyboard())
         return
 
+    if data.startswith("catidx_"):
+        try:
+            idx = int(data[len("catidx_"):])
+            cats = category_list()
+            if idx < 0 or idx >= len(cats):
+                send(chat_id, "❌ Kategoriya topilmadi.", categories_keyboard())
+                return
+            category = cats[idx]
+        except Exception:
+            send(chat_id, "❌ Kategoriya topilmadi.", categories_keyboard())
+            return
+        send(chat_id, f"📂 {category}", category_books_keyboard(category, chat_id))
+        return
+
+    # Eski xabarlardagi cat_<kategoriya> tugmalarini ham ishlatamiz.
     if data.startswith("cat_"):
         try:
             category = urllib.parse.unquote(data[4:])
+            if not category:
+                return
+            send(chat_id, f"📂 {normalize_category(category)}",
+                 category_books_keyboard(normalize_category(category), chat_id))
         except Exception:
-            category = data[4:]
-        send(chat_id, f"📂 {category}", category_books_keyboard(category, chat_id))
+            send(chat_id, "❌ Kategoriya topilmadi.", categories_keyboard())
         return
 
     # =========================
@@ -3049,6 +3036,15 @@ def handle_callback(callback):
                     "qty": int(qty),
                     "unit_price": int(effective_price(book))
                 })
+
+        if not payment_items:
+            states.pop(chat_id, None)
+            send(
+                chat_id,
+                "❌ Buyurtmadagi kitoblardan biri topilmadi. Iltimos, buyurtmani qaytadan boshlang.",
+                main_menu(chat_id)
+            )
+            return
 
         total = sum(int(item["unit_price"]) * int(item["qty"]) for item in payment_items)
         grand = total + int(DELIVERY_FEE)
