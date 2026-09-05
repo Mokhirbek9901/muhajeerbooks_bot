@@ -602,7 +602,7 @@ def admin_menu():
             [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
-            [{"text": "📢 Xabar yuborish"}],
+            [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
             [{"text": "🏠 Asosiy menyu"}],
         ],
         "resize_keyboard": True
@@ -874,6 +874,16 @@ def register_user(chat_id, user):
         "username": user.get("username", "")
     }
     save_users()
+
+
+def admin_users_text():
+    # Eng yangi users.json ni o‘qib, botdan foydalanganlar sonini ko‘rsatamiz.
+    load_users()
+    total = len(users)
+    return (
+        "👥 FOYDALANUVCHILAR\n\n"
+        f"Jami foydalanuvchilar: {total} ta"
+    )
 
 
 def search_books(query):
@@ -1315,6 +1325,11 @@ def handle_message(message):
         if text == "📊 Hisobot":
             states.pop(chat_id, None)
             send(chat_id, admin_report_text(), admin_report_keyboard())
+            return
+
+        if text == "👥 Foydalanuvchilar":
+            states.pop(chat_id, None)
+            send(chat_id, admin_users_text(), admin_menu())
             return
 
         if text == "📦 Buyurtmalar":
