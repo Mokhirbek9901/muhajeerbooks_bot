@@ -3,6 +3,7 @@ import time
 import json
 import urllib.request
 import urllib.parse
+import random
 from datetime import datetime, timedelta
 
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -217,12 +218,28 @@ def save_users():
 def load_users():
     global users
 
+    file_exists = os.path.exists(USERS_FILE)
+
     try:
         with open(USERS_FILE, "r", encoding="utf-8") as f:
-            users = json.load(f)
-    except Exception:
-        users = {}
-        save_users()
+            loaded = json.load(f)
+
+        if not isinstance(loaded, dict):
+            raise ValueError("users.json lug‘at formatida emas")
+
+        users = loaded
+
+    except Exception as e:
+        print("users.json o‘qish xatosi:", e)
+
+        # Fayl mavjud bo‘lsa, vaqtinchalik o‘qish xatosi sabab
+        # foydalanuvchilar ro‘yxatini bo‘shatib, ustidan yozmaymiz.
+        # Xotirada oldingi ma’lumot bo‘lsa, uni saqlab qolamiz.
+        if not file_exists:
+            users = {}
+            save_users()
+        elif not isinstance(users, dict):
+            users = {}
 
 
 # =========================
@@ -530,6 +547,124 @@ def category_books_keyboard(category, chat_id):
     return {"inline_keyboard": buttons}
 
 
+# =========================
+# KITOB TAVSIYACHISI
+# =========================
+
+def recommender_interest_keyboard():
+    return {"inline_keyboard": [
+        [{"text": "🧠 Psixologiya", "callback_data": "rec_i_psixologiya"},
+         {"text": "💰 Biznes / Moliya", "callback_data": "rec_i_biznes"}],
+        [{"text": "❤️ Sevgi / Romantika", "callback_data": "rec_i_romantika"},
+         {"text": "🕵️ Detektiv / Sirli", "callback_data": "rec_i_detektiv"}],
+        [{"text": "🕌 Diniy", "callback_data": "rec_i_diniy"},
+         {"text": "🌍 Tarix / Dunyo", "callback_data": "rec_i_tarix"}],
+        [{"text": "🚀 Shaxsiy rivojlanish", "callback_data": "rec_i_rivojlanish"},
+         {"text": "🤷 Farqi yo‘q", "callback_data": "rec_i_any"}],
+        [{"text": "❌ Bekor qilish", "callback_data": "home"}]
+    ]}
+
+
+def recommender_style_keyboard():
+    return {"inline_keyboard": [
+        [{"text": "😊 Oson va qiziqarli", "callback_data": "rec_s_easy"},
+         {"text": "💭 Fikrlashga undasin", "callback_data": "rec_s_think"}],
+        [{"text": "❤️ Ta’sirli / Hayotiy", "callback_data": "rec_s_emotion"},
+         {"text": "🔥 Hayajonli", "callback_data": "rec_s_exciting"}],
+        [{"text": "🤷 Farqi yo‘q", "callback_data": "rec_s_any"}]
+    ]}
+
+
+def recommend_books(interest="any", style="any"):
+    refresh_books()
+    available = [b for b in books if int(b.get("stock", 0)) > 0 and int(b.get("price", 0)) > 0]
+    if not available:
+        return []
+
+    interest_words = {
+        "psixologiya": ["psixolog", "ruh", "inson", "xarakter", "ong", "muloqot", "his"],
+        "biznes": ["biznes", "moliya", "pul", "boy", "invest", "marketing", "tadbirkor"],
+        "romantika": ["sevgi", "muhabbat", "romantik", "romance", "qalb", "ayol", "erkak"],
+        "detektiv": ["detektiv", "sir", "jinoyat", "qotil", "tergov", "sarguzasht", "triller"],
+        "diniy": ["diniy", "islom", "sunniy", "fiqh", "aqida", "hadis", "qur'on", "quron", "musulmon"],
+        "tarix": ["tarix", "dunyo", "urush", "davlat", "siyosat", "tarixiy"],
+        "rivojlanish": ["rivoj", "motiv", "odat", "maqsad", "muvaffaq", "shaxsiy", "intizom", "o‘zini", "ozini"]
+    }
+    style_words = {
+        "easy": ["oson", "qiziqarli", "hikoya", "roman", "boshlovchi", "yengil"],
+        "think": ["falsafa", "fikr", "tafakkur", "savol", "psixolog", "tahlil", "falsafiy"],
+        "emotion": ["hayot", "ta'sir", "ta’sir", "yurak", "his", "oilaviy", "drama", "muhabbat"],
+        "exciting": ["detektiv", "sir", "jinoyat", "sarguzasht", "triller", "hayajon"]
+    }
+
+    def haystack(b):
+        return " ".join([
+            str(b.get("name", "")), str(b.get("author", "")),
+            str(b.get("category", "")), str(b.get("description", ""))
+        ]).lower()
+
+    scored = []
+    for b in available:
+        text = haystack(b)
+        score = 0
+        matched = []
+        if interest != "any":
+            hits = [w for w in interest_words.get(interest, []) if w in text]
+            score += len(hits) * 5
+            if hits:
+                matched.append("qiziqishingizga mos")
+        if style != "any":
+            hits = [w for w in style_words.get(style, []) if w in text]
+            score += len(hits) * 3
+            if hits:
+                matched.append("kitob uslubingizga mos")
+        # Admin tavsiya qilgan kitoblarga kichik ustunlik.
+        if b.get("recommended"):
+            score += 1
+        scored.append((score, b, matched))
+
+    best_score = max(x[0] for x in scored)
+    if best_score <= 1:
+        # Hech qanday aniq moslik topilmasa, mavjud kitoblardan random.
+        chosen = random.choice(available)
+        return [(chosen, ["tasodifiy tanlandi"])]
+
+    best = [(b, matched) for score, b, matched in scored if score == best_score]
+    # Bir xil darajadagi eng mos kitoblardan random tanlaymiz.
+    chosen = random.choice(best)
+    return [chosen]
+
+
+def recommender_result(chat_id, interest, style):
+    result = recommend_books(interest, style)
+    if not result:
+        send(chat_id, "😔 Hozircha tavsiya qilish uchun mavjud kitob topilmadi.", main_menu(chat_id))
+        return
+    book, reasons = result[0]
+    interest_names = {
+        "psixologiya": "Psixologiya", "biznes": "Biznes / Moliya",
+        "romantika": "Sevgi / Romantika", "detektiv": "Detektiv / Sirli",
+        "diniy": "Diniy", "tarix": "Tarix / Dunyo", "rivojlanish": "Shaxsiy rivojlanish",
+        "any": "Erkin tanlov"
+    }
+    style_names = {
+        "easy": "Oson va qiziqarli", "think": "Fikrlashga undaydigan",
+        "emotion": "Ta’sirli / Hayotiy", "exciting": "Hayajonli", "any": "Farqi yo‘q"
+    }
+    reason = " va ".join(reasons) if reasons else "siz uchun random tanlandi"
+    text = (
+        "🎯 SIZ UCHUN KITOB TANLADIK!\n\n"
+        f"📖 {book['name']}\n\n"
+        f"💡 Nega: {reason}.\n"
+        f"📂 Yo‘nalish: {interest_names.get(interest, interest)}\n"
+        f"✨ Uslub: {style_names.get(style, style)}\n\n"
+        f"{price_text(book)}\n"
+        f"📦 Omborda: {int(book.get('stock', 0))} dona\n\n"
+        f"📄 {str(book.get('description', 'Ma’lumot kiritilmagan.'))}"
+    )
+    send(chat_id, text, book_detail_keyboard(book, chat_id))
+
+
 def order_cart_keyboard(chat_id):
     kb = cart_keyboard(chat_id)
     rows = kb.get("inline_keyboard", [])
@@ -581,6 +716,7 @@ def main_menu(chat_id):
         [{"text": "🔎 Qidirish"}, {"text": "❤️ Sevimlilar"}],
         [{"text": "🔥 Tavsiya etilgan"}, {"text": "🆕 Yangi kitoblar"}],
         [{"text": "🏆 Eng ko‘p sotilgan"}],
+        [{"text": "🎯 Menga kitob tanla"}],
         [{"text": "🛒 Savatcha"}, {"text": "📜 Mening buyurtmalarim"}],
         [{"text": "🔢 Buyurtmani tekshirish"}],
         [{"text": "📦 Zakaz berish"}, {"text": "📞 Bog‘lanish"}],
@@ -877,12 +1013,11 @@ def register_user(chat_id, user):
 
 
 def admin_users_text():
-    # Eng yangi users.json ni o‘qib, botdan foydalanganlar sonini ko‘rsatamiz.
+    # Eng yangi users.json ni o'qib, botdan foydalangan foydalanuvchilar sonini ko'rsatadi.
     load_users()
-    total = len(users)
     return (
         "👥 FOYDALANUVCHILAR\n\n"
-        f"Jami foydalanuvchilar: {total} ta"
+        f"Jami foydalanuvchilar: {len(users)} ta"
     )
 
 
@@ -1327,14 +1462,14 @@ def handle_message(message):
             send(chat_id, admin_report_text(), admin_report_keyboard())
             return
 
-        if text == "👥 Foydalanuvchilar":
-            states.pop(chat_id, None)
-            send(chat_id, admin_users_text(), admin_menu())
-            return
-
         if text == "📦 Buyurtmalar":
             states.pop(chat_id, None)
             send(chat_id, admin_orders_text("all"), admin_orders_keyboard("all"))
+            return
+
+        if text == "👥 Foydalanuvchilar":
+            states.pop(chat_id, None)
+            send(chat_id, admin_users_text(), admin_menu())
             return
 
         if text == "📢 Xabar yuborish":
@@ -1697,6 +1832,7 @@ def handle_message(message):
             "🔥 Tavsiya etilgan",
             "🆕 Yangi kitoblar",
             "🏆 Eng ko‘p sotilgan",
+            "🎯 Menga kitob tanla",
             "🛒 Savatcha",
             "📜 Mening buyurtmalarim",
             "🔢 Buyurtmani tekshirish",
@@ -1709,6 +1845,27 @@ def handle_message(message):
                 admin_menu()
             )
             return
+
+    # =========================
+    # CUSTOMER: KITOB TAVSIYACHISI
+    # =========================
+    if text == "🎯 Menga kitob tanla":
+        states[chat_id] = {"action": "recommend_interest"}
+        send(
+            chat_id,
+            "🎯 Sizga mos kitob topib beraman!\n\n"
+            "Avval ayting, qaysi mavzu sizni ko‘proq qiziqtiradi?",
+            recommender_interest_keyboard()
+        )
+        return
+
+    if state and state.get("action") == "recommend_interest":
+        send(chat_id, "🎯 Quyidagi tugmalardan birini tanlang:", recommender_interest_keyboard())
+        return
+
+    if state and state.get("action") == "recommend_style":
+        send(chat_id, "✨ Quyidagi tugmalardan birini tanlang:", recommender_style_keyboard())
+        return
 
     # =========================
     # CUSTOMER: KATEGORIYALAR
@@ -2402,6 +2559,31 @@ def handle_callback(callback):
             return
         subscribe_restock(chat_id, book_id)
         send(chat_id, f"🔔 Tayyor! {book['name']} qayta kelganda sizga xabar beramiz.", main_menu(chat_id))
+        return
+
+    # =========================
+    # KITOB TAVSIYACHISI
+    # =========================
+    if data.startswith("rec_i_"):
+        interest = data[6:]
+        if interest not in {"psixologiya", "biznes", "romantika", "detektiv", "diniy", "tarix", "rivojlanish", "any"}:
+            return
+        states[chat_id] = {"action": "recommend_style", "interest": interest}
+        send(
+            chat_id,
+            "✨ Endi qanday kitob xohlaysiz?",
+            recommender_style_keyboard()
+        )
+        return
+
+    if data.startswith("rec_s_"):
+        style = data[6:]
+        if style not in {"easy", "think", "emotion", "exciting", "any"}:
+            return
+        state = states.get(chat_id, {})
+        interest = state.get("interest", "any")
+        states.pop(chat_id, None)
+        recommender_result(chat_id, interest, style)
         return
 
     # =========================
