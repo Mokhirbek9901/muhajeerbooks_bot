@@ -300,7 +300,7 @@ def load_books():
         defaults = {
             "stock": 0,
             "price": 0,
-            "category": "Boshqa",
+            "category": "Boshqalar",
             "author": "Ko‘rsatilmagan",
             "description": "Ma’lumot kiritilmagan.",
             "old_price": 0,
@@ -590,10 +590,10 @@ def category_list():
     refresh_books()
     cats = []
     for b in books:
-        c = str(b.get("category", "Boshqa") or "Boshqa").strip()
+        c = str(b.get("category", "Boshqa") or "Boshqalar").strip()
         if c not in cats:
             cats.append(c)
-    return cats or ["Boshqa"]
+    return cats or ["Boshqalar"]
 
 
 def categories_keyboard():
@@ -606,7 +606,7 @@ def categories_keyboard():
 
 def book_detail_text(book):
     stock = int(book.get("stock", 0))
-    category = str(book.get("category", "Boshqa") or "Boshqa")
+    category = str(book.get("category", "Boshqa") or "Boshqalar")
     author = str(book.get("author", "Ko‘rsatilmagan") or "Ko‘rsatilmagan")
     desc = str(book.get("description", "Ma’lumot kiritilmagan.") or "Ma’lumot kiritilmagan.")
     avg, count = book_rating(book["id"])
@@ -662,7 +662,7 @@ def favorites_keyboard(chat_id):
 
 
 def category_books_keyboard(category, chat_id):
-    items = [b for b in books if str(b.get("category", "Boshqa")) == category]
+    items = [b for b in books if str(b.get("category", "Boshqalar")) == category]
     buttons = []
     for b in items:
         stock = int(b.get("stock", 0))
@@ -1840,7 +1840,7 @@ def handle_message(message):
                 return
 
             if action == "add_category":
-                state["category"] = "Boshqa" if text == "—" else text
+                state["category"] = "Boshqalar" if text == "—" else text
                 state["action"] = "add_author"
                 send(chat_id, "✍️ Muallifini yozing. Bilinmasa: —")
                 return
