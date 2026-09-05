@@ -212,6 +212,12 @@ def restore_backup_file(path):
     load_favorites()
     load_ratings()
     load_restock()
+
+    # Backup tiklangandan keyin eski foydalanuvchi sessiyalari va savatchalari
+    # yangi ma'lumotlar bilan aralashib ketmasligi uchun tozalanadi.
+    carts.clear()
+    states.clear()
+
     return len(books), len(orders), len(users)
 
 
@@ -305,6 +311,7 @@ def load_books():
             "description": "Ma’lumot kiritilmagan.",
             "old_price": 0,
             "photo_id": "",
+            "cover": "Ko‘rsatilmagan",
             "recommended": False,
             "created_at": ""
         }
@@ -816,22 +823,37 @@ def order_cart_keyboard(chat_id):
 
 
 def order_edit_keyboard(state=None):
+    # 1-bosqich: mijoz avval to‘lovni qiladi.
+    # Bu bosqichda Ism/Telefon/Manzil/Savat tugmalari ko‘rsatilmaydi.
+    # 2-bosqich: «To‘lov qildim» bosilgach, ma’lumotlarni tekshirish
+    # va xato bo‘lsa tuzatish uchun tahrirlash tugmalari chiqadi.
     paid_declared = bool((state or {}).get("payment_declared", False))
+
+    if not paid_declared:
+        return {
+            "inline_keyboard": [
+                [{"text": "💳 To‘lov qildim", "callback_data": "order_payment_done"}],
+                [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}]
+            ]
+        }
 
     buttons = [
         [{"text": "✏️ Ism", "callback_data": "orderedit_name"},
          {"text": "📱 Telefon", "callback_data": "orderedit_phone"}],
         [{"text": "📍 Manzil", "callback_data": "orderedit_address"},
          {"text": "🛒 Savat", "callback_data": "orderedit_cart"}],
+        [{"text": "✅ Tasdiqlash", "callback_data": "order_confirm_cb"}],
+        [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}]
     ]
-
-    if paid_declared:
-        buttons.append([{"text": "✅ Tasdiqlash", "callback_data": "order_confirm_cb"}])
-    else:
-        buttons.append([{"text": "💳 To‘lov qildim", "callback_data": "order_payment_done"}])
-
-    buttons.append([{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}])
     return {"inline_keyboard": buttons}
+
+
+def order_customer_info_text(state):
+    return (
+        "👤 Ism: " + str(state.get("name", "—")) + "\n"
+        "📱 Telefon: " + str(state.get("phone", "—")) + "\n"
+        "📍 Manzil: " + str(state.get("address", "—"))
+    )
 
 def order_status_keyboard():
     return {"inline_keyboard": [[{"text": "🔎 Buyurtma raqami bilan tekshirish", "callback_data": "order_lookup"}], [{"text": "🏠 Bosh menyu", "callback_data": "home"}]]}
@@ -1129,13 +1151,28 @@ def calculate_cart(chat_id):
 
 def order_preview_text(state, show_payment_info=True):
     lines=[]; total=0
-    for book_id,qty in state.get("cart",{}).items():
-        book=find_book(book_id)
-        if not book: continue
-        subtotal=effective_price(book)*int(qty); total+=subtotal
-        lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
+
+    # To‘lov tasdiqlangach, foydalanuvchiga aynan to‘lov bosilgan paytdagi
+    # narxlar ko‘rsatiladi. Keyinchalik admin narxni o‘zgartirsa ham summa
+    # buyurtma ichida o‘zgarmaydi.
+    payment_items = state.get("payment_items", []) if state.get("payment_declared", False) else []
+    if payment_items:
+        for item in payment_items:
+            qty = int(item.get("qty", 0))
+            unit_price = int(item.get("unit_price", 0))
+            name = str(item.get("name", "Kitob"))
+            subtotal = unit_price * qty
+            total += subtotal
+            lines.append(f"📖 {name} × {qty} = ₩{subtotal:,}")
+    else:
+        for book_id,qty in state.get("cart",{}).items():
+            book=find_book(book_id)
+            if not book: continue
+            subtotal=effective_price(book)*int(qty); total+=subtotal
+            lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
+
     grand_total=total+DELIVERY_FEE
-    text=("🧾 BUYURTMANGIZ\n\n"+"\n".join(lines)+f"\n\n💰 Kitoblar: ₩{total:,}"+f"\n🚚 택배 +₩{DELIVERY_FEE:,}"+f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}")
+    text=("🧾 BUYURTMANGIZ\n\n"+"\n".join(lines)+f"\n\n💰 Kitoblar: ₩{total:,}"+f"\n🚚 Yetkazib berish: ₩{DELIVERY_FEE:,}"+f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}")
     if show_payment_info:
         text += ("\n\n💳 TO‘LOV MA‘LUMOTLARI\n"
                  f"💳 Karta raqami: {CARD_NUMBER}\n"
@@ -1193,7 +1230,7 @@ def search_books_keyboard(items):
     buttons = []
     for b in items:
         stock = int(b.get("stock", 0))
-        price = int(b.get("price", 0))
+        price = int(effective_price(b))
         if stock > 0 and price > 0:
             buttons.append([{
                 "text": f"📖 {b['name']} — ₩{price:,} ({stock} ta)",
@@ -1939,13 +1976,13 @@ def handle_message(message):
                 return
 
             if action == "add_author":
-                state["author"] = "Ko‘rsatilmagan" if text == "—" else text
+                state["author"] = "Ko‘rsatilmagan" if text.strip() in ("-", "—") else text.strip()
                 state["action"] = "add_description"
                 send(chat_id, "📄 Qisqa tavsifini yozing. Bo‘lmasa: —")
                 return
 
             if action == "add_description":
-                state["description"] = "Ma’lumot kiritilmagan." if text == "—" else text
+                state["description"] = "Ma’lumot kiritilmagan." if text.strip() in ("-", "—") else text.strip()
                 state["action"] = "add_old_price"
                 send(chat_id, "🎁 Eski narxni yozing (chegirma bo‘lsa). Chegirma yo‘q bo‘lsa: 0")
                 return
@@ -2029,9 +2066,9 @@ def handle_message(message):
                         return
                     book["cover"] = cover
                 elif action == "change_author":
-                    book["author"] = "Ko‘rsatilmagan" if text == "—" else text
+                    book["author"] = "Ko‘rsatilmagan" if text.strip() in ("-", "—") else text.strip()
                 else:
-                    book["description"] = "Ma’lumot kiritilmagan." if text == "—" else text
+                    book["description"] = "Ma’lumot kiritilmagan." if text.strip() in ("-", "—") else text.strip()
                 save_books()
                 states.pop(chat_id, None)
                 send(chat_id, f"✅ {book['name']} ma’lumoti yangilandi.", admin_menu())
@@ -3002,10 +3039,19 @@ def handle_callback(callback):
         state["grand_total"] = grand
 
         preview, _, _ = order_preview_text(state, show_payment_info=False)
-        send(chat_id,
-             preview + "\n\n💳 To‘lovingiz belgilandi.\n"
-             "⚠️ Ma’lumotlarni tekshirib, «✅ Tasdiqlash» tugmasini bosing.",
-             order_edit_keyboard(state))
+
+        customer_info = order_customer_info_text(state)
+
+        send(
+            chat_id,
+            preview
+            + "\n\n"
+            + customer_info
+            + "\n\n"
+            + "💳 To‘lovingiz belgilandi.\n"
+            + "⚠️ Ma’lumotlarni tekshirib, «✅ Tasdiqlash» tugmasini bosing.",
+            order_edit_keyboard(state)
+        )
         return
 
     if data == "order_confirm_cb":
