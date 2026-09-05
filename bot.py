@@ -1509,7 +1509,11 @@ def finalize_order(chat_id):
                 items.append(f"• {b['name'] if b else 'Kitob'} × {qty}")
             send(int(ADMIN_ID),
                  f"🆕 YANGI BUYURTMA №{order_id}\n\n"
-                 f"👤 {order['name']}\n📱 {order['phone']}\n📍 {order['address']}\n"
+                 f"👤 Ism: {order['name']}\n"
+                 f"📱 Telefon: {order['phone']}\n"
+                 f"📍 Manzil: {order['address']}\n"
+                 f"🔗 Telegram: @{order.get('username').lstrip('@')}\n" if order.get('username') else f"👤 Ism: {order['name']}\n📱 Telefon: {order['phone']}\n📍 Manzil: {order['address']}\n🔗 Telegram: username yo‘q\n"
+                 f"🆔 ID: {order['chat_id']}\n"
                  f"💵 Jami: ₩{grand_total:,}\n"
                  f"💳 Mijoz «To‘lov qildim» deb tasdiqladi.\n\n" + "\n".join(items),
                  admin_order_status_keyboard(order_id, "pending"))
