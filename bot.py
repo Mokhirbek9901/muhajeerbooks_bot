@@ -691,21 +691,49 @@ def favorites_keyboard(chat_id):
     return {"inline_keyboard": buttons}
 
 
-def category_books_keyboard(category, chat_id):
+def category_books_keyboard(category, chat_id, page=0):
     category = normalize_category(category)
     items = [
         b for b in books
         if normalize_category(b.get("category", "Boshqalar")) == category
     ]
+
+    per_page = 8
+    total_pages = max(1, (len(items) + per_page - 1) // per_page)
+
+    try:
+        page = int(page)
+    except Exception:
+        page = 0
+
+    page = max(0, min(page, total_pages - 1))
+    start = page * per_page
+    page_items = items[start:start + per_page]
+
     buttons = []
-    for b in items:
+
+    for b in page_items:
         stock = int(b.get("stock", 0))
         p = effective_price(b)
         icon = "📖" if stock > 0 and p > 0 else "❌"
         label = f"{icon} {b['name']} — ₩{p:,}" if p else f"{icon} {b['name']}"
-        buttons.append([{"text": label, "callback_data": f"book_{b['id']}"}])
+        buttons.append([{
+            "text": label,
+            "callback_data": f"book_{b['id']}" if stock > 0 and p > 0 else f"none_{b['id']}"
+        }])
+
+    if total_pages > 1:
+        nav = []
+        if page > 0:
+            nav.append({"text": "◀️", "callback_data": f"catpage_{page - 1}_{urllib.parse.quote(category, safe='')}"})
+        nav.append({"text": f"{page + 1}/{total_pages}", "callback_data": "cart_noop"})
+        if page < total_pages - 1:
+            nav.append({"text": "▶️", "callback_data": f"catpage_{page + 1}_{urllib.parse.quote(category, safe='')}"})
+        buttons.append(nav)
+
     buttons.append([{"text": "📂 Kategoriyalar", "callback_data": "categories"}])
     buttons.append([{"text": "🏠 Bosh menyu", "callback_data": "home"}])
+
     return {"inline_keyboard": buttons}
 
 
@@ -832,18 +860,46 @@ def admin_order_keyboard(order_id):
     }
 
 
-def books_menu():
+def books_menu(page=0):
     refresh_books()
+
+    per_page = 8
+    total_pages = max(1, (len(books) + per_page - 1) // per_page)
+
+    try:
+        page = int(page)
+    except Exception:
+        page = 0
+
+    page = max(0, min(page, total_pages - 1))
+    start = page * per_page
+    page_books = books[start:start + per_page]
+
     buttons = []
-    for book in books:
+
+    for book in page_books:
         stock = int(book.get("stock", 0))
         price = effective_price(book)
         icon = "📖" if stock > 0 and price > 0 else "❌"
         label = f"{icon} {book['name']} — ₩{price:,}" if price else f"{icon} {book['name']}"
-        buttons.append([{ "text": label, "callback_data": f"book_{book['id']}" if icon == "📖" else f"none_{book['id']}" }])
-    buttons.append([{ "text": "📂 Kategoriyalar", "callback_data": "categories" }])
-    buttons.append([{ "text": "❤️ Sevimlilar", "callback_data": "favorites" }])
-    buttons.append([{ "text": "🏠 Bosh menyu", "callback_data": "home" }])
+        buttons.append([{
+            "text": label,
+            "callback_data": f"book_{book['id']}" if icon == "📖" else f"none_{book['id']}"
+        }])
+
+    if total_pages > 1:
+        nav = []
+        if page > 0:
+            nav.append({"text": "◀️", "callback_data": f"books_page_{page - 1}"})
+        nav.append({"text": f"{page + 1}/{total_pages}", "callback_data": "cart_noop"})
+        if page < total_pages - 1:
+            nav.append({"text": "▶️", "callback_data": f"books_page_{page + 1}"})
+        buttons.append(nav)
+
+    buttons.append([{"text": "📂 Kategoriyalar", "callback_data": "categories"}])
+    buttons.append([{"text": "❤️ Sevimlilar", "callback_data": "favorites"}])
+    buttons.append([{"text": "🏠 Bosh menyu", "callback_data": "home"}])
+
     return {"inline_keyboard": buttons}
 
 
@@ -2517,6 +2573,19 @@ def handle_callback(callback):
         )
         return
 
+    if data.startswith("books_page_"):
+        try:
+            page = int(data[len("books_page_"):])
+        except Exception:
+            return
+
+        send(
+            chat_id,
+            "📚 Mavjud kitoblar:",
+            books_menu(page)
+        )
+        return
+
     # =========================
     # SAVATCHADAN ZAKAZ BERISH
     # =========================
@@ -2975,6 +3044,22 @@ def handle_callback(callback):
             send(chat_id, "❌ Kategoriya topilmadi.", categories_keyboard())
             return
         send(chat_id, f"📂 {category}", category_books_keyboard(category, chat_id))
+        return
+
+    if data.startswith("catpage_"):
+        try:
+            parts = data.split("_", 2)
+            page = int(parts[1])
+            category = urllib.parse.unquote(parts[2])
+        except Exception:
+            return
+
+        category = normalize_category(category)
+        send(
+            chat_id,
+            f"📂 {category}",
+            category_books_keyboard(category, chat_id, page)
+        )
         return
 
     # Eski xabarlardagi cat_<kategoriya> tugmalarini ham ishlatamiz.
