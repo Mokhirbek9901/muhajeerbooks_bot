@@ -590,7 +590,7 @@ def category_list():
     refresh_books()
     cats = []
     for b in books:
-        c = str(b.get("category", "Boshqa") or "Boshqalar").strip()
+        c = str(b.get("category", "Boshqalar") or "Boshqalar").strip()
         if c not in cats:
             cats.append(c)
     return cats or ["Boshqalar"]
@@ -604,10 +604,26 @@ def categories_keyboard():
     return {"inline_keyboard": buttons}
 
 
+def normalize_cover(text):
+    """Kitob muqovasini yagona ko‘rinishga keltiradi."""
+    value = str(text or "").strip().lower()
+
+    if value in ("-", "—", "ko‘rsatilmagan", "korsatilmagan"):
+        return "Ko‘rsatilmagan"
+    if value in ("qattiq", "hardcover", "hard cover"):
+        return "Qattiq"
+    if value in ("yumshoq", "softcover", "soft cover"):
+        return "Yumshoq"
+    if value in ("flexible", "flex"):
+        return "Flexible"
+    return None
+
+
 def book_detail_text(book):
     stock = int(book.get("stock", 0))
-    category = str(book.get("category", "Boshqa") or "Boshqalar")
+    category = str(book.get("category", "Boshqalar") or "Boshqalar")
     author = str(book.get("author", "Ko‘rsatilmagan") or "Ko‘rsatilmagan")
+    cover = str(book.get("cover", "Ko‘rsatilmagan") or "Ko‘rsatilmagan")
     desc = str(book.get("description", "Ma’lumot kiritilmagan.") or "Ma’lumot kiritilmagan.")
     avg, count = book_rating(book["id"])
     rating_line = f"⭐ Reyting: {avg:.1f}/5 ({count} ta baho)" if count else "⭐ Hali baholanmagan"
@@ -617,6 +633,7 @@ def book_detail_text(book):
             f"📦 Omborda: {stock} dona\n"
             f"📂 Kategoriya: {category}\n"
             f"✍️ Muallif: {author}\n"
+            f"📕 Muqova: {cover}\n"
             f"{rating_line}\n\n"
             f"📄 {desc}")
 
@@ -1084,6 +1101,7 @@ def edit_fields_menu(book_id):
             [{"text": "🎁 Eski narx/chegirma", "callback_data": f"eoldprice_{book_id}"}],
             [{"text": "📦 Qoldig‘ini o‘zgartirish", "callback_data": f"estock_{book_id}"}],
             [{"text": "📂 Kategoriyani o‘zgartirish", "callback_data": f"ecat_{book_id}"}],
+            [{"text": "📕 Muqovani o‘zgartirish", "callback_data": f"ecover_{book_id}"}],
             [{"text": "✍️ Muallifni o‘zgartirish", "callback_data": f"eauthor_{book_id}"}],
             [{"text": "📄 Tavsifni o‘zgartirish", "callback_data": f"edesc_{book_id}"}],
             [{"text": "📸 Rasmni o‘zgartirish", "callback_data": f"ephoto_{book_id}"}],
@@ -1835,12 +1853,33 @@ def handle_message(message):
                     send(chat_id, "❌ Qoldiq 0 yoki undan katta son bo‘lsin.")
                     return
                 state["stock"] = stock
+                state["action"] = "add_cover"
+                send(
+                    chat_id,
+                    "📕 Muqova turini yozing:\n"
+                    "• Qattiq\n"
+                    "• Yumshoq\n"
+                    "• Flexible\n"
+                    "Muqova ma’lum bo‘lmasa: —"
+                )
+                return
+
+            if action == "add_cover":
+                cover = normalize_cover(text)
+                if cover is None:
+                    send(
+                        chat_id,
+                        "❌ Faqat Qattiq, Yumshoq yoki Flexible deb yozing.\n"
+                        "Muqova ma’lum bo‘lmasa: —"
+                    )
+                    return
+                state["cover"] = cover
                 state["action"] = "add_category"
                 send(chat_id, "📂 Kategoriyasini yozing. Masalan: Badiiy\nO‘tkazib yuborish: —")
                 return
 
             if action == "add_category":
-                state["category"] = "Boshqalar" if text == "—" else text
+                state["category"] = "Boshqalar" if text.strip() in ("-", "—") else text
                 state["action"] = "add_author"
                 send(chat_id, "✍️ Muallifini yozing. Bilinmasa: —")
                 return
@@ -1880,17 +1919,27 @@ def handle_message(message):
                     return
                 new_id = max([int(b["id"]) for b in books], default=0) + 1
                 new_book = {"id": new_id, "name": state["name"], "price": state["price"], "stock": state["stock"],
-                            "category": state.get("category", "Boshqa"), "author": state.get("author", "Ko‘rsatilmagan"),
+                            "category": state.get("category", "Boshqalar"), "cover": state.get("cover", "Ko‘rsatilmagan"),
+                            "author": state.get("author", "Ko‘rsatilmagan"),
                             "description": state.get("description", "Ma’lumot kiritilmagan."), "old_price": state.get("old_price", 0),
                             "photo_id": state.get("photo_id", ""), "recommended": False,
                             "created_at": datetime.now().isoformat(timespec="seconds")}
                 books.append(new_book)
                 save_books()
                 states.pop(chat_id, None)
-                send(chat_id, f"✅ Kitob qo‘shildi!\n\n📖 {new_book['name']}\n{price_text(new_book)}\n📦 {new_book['stock']} ta\n📂 {new_book['category']}", admin_menu())
+                send(
+                    chat_id,
+                    f"✅ Kitob qo‘shildi!\n\n"
+                    f"📖 {new_book['name']}\n"
+                    f"{price_text(new_book)}\n"
+                    f"📦 {new_book['stock']} ta\n"
+                    f"📕 Muqova: {new_book['cover']}\n"
+                    f"📂 {new_book['category']}",
+                    admin_menu()
+                )
                 return
 
-            if action in ("change_old_price", "change_category", "change_author", "change_description", "change_photo"):
+            if action in ("change_old_price", "change_category", "change_cover", "change_author", "change_description", "change_photo"):
                 book = find_book(state.get("book_id"))
                 if not book:
                     states.pop(chat_id, None)
@@ -1914,7 +1963,17 @@ def handle_message(message):
                         return
                     book["old_price"] = value
                 elif action == "change_category":
-                    book["category"] = "Boshqa" if text == "—" else text
+                    book["category"] = "Boshqalar" if text.strip() in ("-", "—") else text
+                elif action == "change_cover":
+                    cover = normalize_cover(text)
+                    if cover is None:
+                        send(
+                            chat_id,
+                            "❌ Faqat Qattiq, Yumshoq yoki Flexible deb yozing.\n"
+                            "Muqovani o‘chirish uchun: —"
+                        )
+                        return
+                    book["cover"] = cover
                 elif action == "change_author":
                     book["author"] = "Ko‘rsatilmagan" if text == "—" else text
                 else:
@@ -2707,6 +2766,7 @@ def handle_callback(callback):
     for prefix, action, prompt in [
         ("eoldprice_", "change_old_price", "🎁 Eski narxni yozing. Chegirma yo‘q bo‘lsa: 0"),
         ("ecat_", "change_category", "📂 Yangi kategoriyani yozing:"),
+        ("ecover_", "change_cover", "📕 Muqova turini yozing: Qattiq / Yumshoq / Flexible\nO‘chirish uchun: —"),
         ("eauthor_", "change_author", "✍️ Yangi muallifni yozing:"),
         ("edesc_", "change_description", "📄 Yangi tavsifni yozing:"),
         ("ephoto_", "change_photo", "📸 Yangi rasmni yuboring. O‘chirish uchun: —"),
