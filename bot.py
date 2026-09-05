@@ -25,6 +25,78 @@ RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 LOW_STOCK_LIMIT = 2
 
 # =========================
+# FAOL BO'LMAGAN MIJOZLAR
+# =========================
+
+INACTIVE_DAYS = 30
+INACTIVE_CHECK_INTERVAL = 6 * 60 * 60  # har 6 soatda tekshiriladi
+last_inactive_check = 0
+
+INACTIVE_MESSAGES = [
+    "🤨 Yo‘qolib ketdingiz-ku?\n\n"
+    "Sizni kitoblar orasida ko‘rmay qo‘ydik 😅📚\n\n"
+    "🆕 Yangi kitoblar kelgan. Bir ko‘rib qo‘ymaysizmi?",
+
+    "📚 Sizni anchadan beri ko‘rmayapmiz…\n\n"
+    "Balki yana bir yaxshi kitob vaqti kelgandir? 👀\n\n"
+    "Bir kirib, o‘zingizga bittasini tanlab qo‘ying 😅",
+
+    "👀 Kitob o‘qishga vaqt topilmayaptimi?\n\n"
+    "Hech bo‘lmasa bittasini boshlab qo‘yamiz 😅📖\n\n"
+    "Balki aynan shu kitob sizga yoqib qolar.",
+
+    "📢 Bizda yangiliklar bor!\n\n"
+    "Siz yo‘qligingizda yangi kitoblar kelibdi 😅📚\n\n"
+    "Bir kirib, nimalar qo‘shilganini ko‘rib chiqing 😉",
+
+    "😏 Biz sizni unutmadik.\n\n"
+    "Lekin kitoblar: «Qachon keladi ekan?» deb kutyapti 😂📚\n\n"
+    "Bir ko‘rib qo‘ying, balki bittasi ko‘nglingizni olib qo‘yar.",
+
+    "🫣 Bir savol…\n\n"
+    "Oxirgi marta qachon kitob o‘qigansiz? 😂📖\n\n"
+    "Balki bugun yana boshlash uchun yaxshi kun bo‘lar?",
+
+    "📚 Kitoblar joyida.\nBot joyida.\n\n"
+    "Faqat **siz yo‘qsiz** 😅\n\n"
+    "Bir kirib chiqishingizga qarshi emasmiz 😂",
+
+    "🚨 Diqqat!\n\n"
+    "Siz o‘qimay yurganingizda kitoblar ko‘payib ketdi 😂📚\n\n"
+    "Yangi kelganlarini ko‘rib qo‘ying, keyin «bilmagan ekanman» demang 😏",
+
+    "😅 Bizda kichkina muammo bor…\n\n"
+    "Siz uchun kitoblar yig‘ilib qolyapti.\n\n"
+    "Endi ularni kim o‘qiydi? 😂📚",
+
+    "👋 Hey, kitobxon!\n\n"
+    "Ancha bo‘ldi-ku…\nBalki yana bir kitob bilan do‘stlashish vaqti kelgandir? 📖❤️\n\n"
+    "Bizda yangilari ham bor 😉",
+
+    "👀 Sizni qidirib qoldik…\n\n"
+    "Kitoblar orasidan topolmadik 😅📚\n\n"
+    "Balki o‘zingiz kelib, bir ko‘rib ketarsiz?",
+
+    "😴 Kitoblar ham zerikib qoldi…\n\n"
+    "«Bizni qachon o‘qishadi?» deb turishibdi 😂📖\n\n"
+    "Keling, bittasini xursand qilamiz.",
+
+    "🤔 Bugun kitob olish uchun bahona qidiryapsizmi?\n\n"
+    "Mana bahona: **yangi kitoblar kelgan** 😅📚\n\n"
+    "Qolganini o‘zingiz hal qilasiz 😉",
+
+    "📖 Bir paytlar bu botdan kitob izlagan edingiz…\n\n"
+    "Biz esa o‘sha paytdan beri yangi kitoblar qo‘shib kelmoqdamiz 😅\n\n"
+    "Qani, yana bir qarab qo‘ying.",
+
+    "🫵 Sizga bir kitob topib qo‘yishimiz kerak shekilli 😅\n\n"
+    "Chunki shuncha kitob turibdi, siz esa yo‘q 😂📚\n\n"
+    "Balki bugun omadli kitobingizni toparmiz?"
+]
+
+
+
+# =========================
 # TO'LOV / YETKAZIB BERISH
 # =========================
 
@@ -368,6 +440,23 @@ def load_users():
             raise ValueError("users.json lug‘at formatida emas")
 
         users = loaded
+
+        # Eski users.json uchun faoliyat vaqtini bir marta boshlang‘ich qilib qo‘yamiz.
+        # Shunda botdagi mavjud mijozlar ham funksiyaga qo‘shiladi, lekin darhol xabar olmaydi.
+        changed = False
+        now = int(time.time())
+        for key, item in users.items():
+            if not isinstance(item, dict):
+                continue
+            if not item.get("last_active"):
+                item["last_active"] = now
+                item["inactive_message_sent"] = False
+                changed = True
+            elif "inactive_message_sent" not in item:
+                item["inactive_message_sent"] = False
+                changed = True
+        if changed:
+            save_users()
 
     except Exception as e:
         print("users.json o‘qish xatosi:", e)
@@ -1146,13 +1235,106 @@ def order_preview_text(state, show_payment_info=True):
 # MIJOZLAR / QIDIRUV / HISOBOT
 # =========================
 
+def inactive_new_books_keyboard():
+    return {
+        "inline_keyboard": [
+            [{"text": "🆕 Yangi kitoblarni ko‘rish", "callback_data": "new_books"}]
+        ]
+    }
+
+
+def send_inactive_message(chat_id):
+    refresh_books()
+    candidates = [
+        b for b in books
+        if int(b.get("stock", 0)) > 0
+        and int(b.get("price", 0)) > 0
+        and str(b.get("photo_id", "")).strip()
+    ]
+
+    text = random.choice(INACTIVE_MESSAGES)
+    markup = inactive_new_books_keyboard()
+
+    if candidates:
+        book = random.choice(candidates)
+        try:
+            api(
+                "sendPhoto",
+                {
+                    "chat_id": chat_id,
+                    "photo": book["photo_id"],
+                    "caption": text,
+                    "reply_markup": json.dumps(markup, ensure_ascii=False)
+                }
+            )
+            return True
+        except Exception as e:
+            print("Faol bo‘lmagan mijozga rasm yuborish xatosi:", chat_id, e)
+
+    try:
+        send(chat_id, text, markup)
+        return True
+    except Exception as e:
+        print("Faol bo‘lmagan mijozga xabar yuborish xatosi:", chat_id, e)
+        return False
+
+
+def check_inactive_users(force=False):
+    global last_inactive_check
+
+    now = time.time()
+    if not force and now - last_inactive_check < INACTIVE_CHECK_INTERVAL:
+        return
+    last_inactive_check = now
+
+    load_users()
+    changed = False
+    threshold = now - (INACTIVE_DAYS * 24 * 60 * 60)
+
+    for uid, user in list(users.items()):
+        if str(uid) == str(ADMIN_ID):
+            continue
+        if not isinstance(user, dict):
+            continue
+
+        try:
+            last_active = float(user.get("last_active", 0) or 0)
+        except Exception:
+            last_active = 0
+
+        if last_active <= 0 or last_active > threshold:
+            continue
+
+        # Bir marta yuboramiz. Mijoz qayta foydalansa register_user buni tozalaydi.
+        if user.get("inactive_message_sent"):
+            continue
+
+        if send_inactive_message(int(uid)):
+            user["inactive_message_sent"] = int(now)
+            changed = True
+
+    if changed:
+        save_users()
+
+
 def register_user(chat_id, user):
-    users[str(chat_id)] = {
+    key = str(chat_id)
+    now = int(time.time())
+    old = users.get(key, {})
+
+    users[key] = {
         "chat_id": chat_id,
         "first_name": user.get("first_name", ""),
         "last_name": user.get("last_name", ""),
-        "username": user.get("username", "")
+        "username": user.get("username", ""),
+        "last_active": now,
+        "inactive_message_sent": False
     }
+
+    # Mijoz yana foydalansa, avvalgi 30 kunlik eslatma holatini tiklaymiz.
+    # Birinchi marta ko‘rinayotgan eski userlarda esa hozirgi vaqtni boshlang‘ich nuqta qilamiz.
+    if not old.get("last_active"):
+        users[key]["last_active"] = now
     save_users()
 
 
@@ -2549,6 +2731,9 @@ def handle_callback(callback):
     if chat_id is None:
         return
 
+    # Callback ham botdan foydalanish hisoblanadi.
+    register_user(chat_id, callback.get("from", {}))
+
     # =========================
     # HOME
     # =========================
@@ -2558,6 +2743,18 @@ def handle_callback(callback):
             chat_id,
             "Asosiy menyu:",
             main_menu(chat_id)
+        )
+        return
+
+    # =========================
+    # YANGI KITOBLAR
+    # =========================
+
+    if data == "new_books":
+        send(
+            chat_id,
+            "🆕 YANGI QO‘SHILGAN KITOBLAR",
+            new_books_keyboard()
         )
         return
 
@@ -3514,6 +3711,8 @@ def main():
 
                 elif "callback_query" in update:
                     handle_callback(update["callback_query"])
+
+            check_inactive_users()
 
         except Exception as e:
             print("Xato:", e)
