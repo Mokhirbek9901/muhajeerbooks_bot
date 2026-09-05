@@ -877,6 +877,11 @@ def cart_keyboard(chat_id):
         {"text": "🗑 Barchasini tozalash", "callback_data": "cartclear"}
     ])
 
+    # Savatchaning o‘zidan turib buyurtmani boshlash.
+    buttons.append([
+        {"text": "📦 Zakaz berish", "callback_data": "cart_order"}
+    ])
+
     buttons.append([
         {"text": "📚 Kitoblar", "callback_data": "books"},
         {"text": "🏠 Bosh menyu", "callback_data": "home"}
@@ -2177,6 +2182,33 @@ def handle_callback(callback):
             chat_id,
             "📚 Mavjud kitoblar:",
             books_menu()
+        )
+        return
+
+    # =========================
+    # SAVATCHADAN ZAKAZ BERISH
+    # =========================
+
+    if data == "cart_order":
+        cart = carts.get(chat_id, {})
+
+        if not cart:
+            send(chat_id, "🛒 Avval kitob tanlang.", main_menu(chat_id))
+            return
+
+        state_user = users.get(str(chat_id), {})
+        states[chat_id] = {
+            "action": "order_name",
+            "username": state_user.get("username", ""),
+            "chat_id": chat_id,
+            "cart": dict(cart),
+            "payment_declared": False
+        }
+
+        send(
+            chat_id,
+            cart_text(chat_id)
+            + "\n\n📝 Buyurtma uchun ismingizni yozing:"
         )
         return
 
