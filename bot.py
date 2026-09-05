@@ -2434,15 +2434,36 @@ def handle_message(message):
         if not text:
             send(chat_id, "❌ Ma’lumot bo‘sh bo‘lmasin.")
             return
+
         action = state["action"]
-        key = {"edit_order_name":"name", "edit_order_phone":"phone", "edit_order_address":"address"}[action]
+        key = {
+            "edit_order_name": "name",
+            "edit_order_phone": "phone",
+            "edit_order_address": "address"
+        }[action]
         state[key] = text
+
         preview, total, grand = order_preview_text(
             state,
             show_payment_info=not state.get("payment_declared", False)
         )
         state["total"], state["grand_total"], state["action"] = total, grand, "order_confirm"
-        send(chat_id, preview, order_edit_keyboard(state))
+
+        # Tahrirdan keyin ham yangilangan ism/telefon/manzil ko‘rinsin.
+        # To‘lov avval belgilangan bo‘lsa, shu holat ham saqlanadi.
+        customer_info = order_customer_info_text(state)
+        extra = ""
+        if state.get("payment_declared", False):
+            extra = (
+                "\n\n💳 To‘lovingiz belgilandi.\n"
+                "⚠️ Ma’lumotlarni tekshirib, «✅ Tasdiqlash» tugmasini bosing."
+            )
+
+        send(
+            chat_id,
+            preview + "\n\n" + customer_info + extra,
+            order_edit_keyboard(state)
+        )
         return
 
     # =========================
