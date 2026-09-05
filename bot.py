@@ -1789,15 +1789,6 @@ def handle_message(message):
                 send(chat_id, f"📢 Xabar yuborildi.\n\n✅ Yuborildi: {sent}\n❌ Yetkazilmadi: {failed}", admin_menu())
                 return
 
-            if action == "search":
-                result = search_books(text)
-                states.pop(chat_id, None)
-                if not result:
-                    send(chat_id, f"🔎 «{text}» bo‘yicha kitob topilmadi.", main_menu(chat_id))
-                else:
-                    send(chat_id, f"🔎 Natijalar: «{text}»", search_books_keyboard(result))
-                return
-
             if action == "add_name":
                 if not text:
                     send(chat_id, "❌ Kitob nomi bo‘sh bo‘lmasin.")
@@ -2066,6 +2057,19 @@ def handle_message(message):
         return
 
     # =========================
+    # =========================
+    # CUSTOMER: SEARCH RESULT
+    # =========================
+
+    if state and state.get("action") == "search":
+        result = search_books(text)
+        states.pop(chat_id, None)
+        if not result:
+            send(chat_id, f"🔎 «{text}» bo‘yicha kitob topilmadi.", main_menu(chat_id))
+        else:
+            send(chat_id, f"🔎 «{text}» bo‘yicha {len(result)} ta kitob topildi:", search_books_keyboard(result))
+        return
+
     # CUSTOMER: KATEGORIYALAR
     # =========================
     if text == "📂 Kategoriyalar":
