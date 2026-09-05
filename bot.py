@@ -1503,20 +1503,63 @@ def finalize_order(chat_id):
 
     if ADMIN_ID:
         try:
+            # Admin uchun buyurtmani to‘liq ko‘rsatamiz:
+            # mijoz ma’lumotlari + Telegram username/ID + qaysi kitoblar
+            # va nechta olgani + har bir kitob summasi + yetkazib berish + jami.
             items = []
-            for bid, qty in order["cart"].items():
-                b = find_book(int(bid))
-                items.append(f"• {b['name'] if b else 'Kitob'} × {qty}")
-            send(int(ADMIN_ID),
-                 f"🆕 YANGI BUYURTMA №{order_id}\n\n"
-                 f"👤 Ism: {order['name']}\n"
-                 f"📱 Telefon: {order['phone']}\n"
-                 f"📍 Manzil: {order['address']}\n"
-                 f"🔗 Telegram: @{order.get('username').lstrip('@')}\n" if order.get('username') else f"👤 Ism: {order['name']}\n📱 Telefon: {order['phone']}\n📍 Manzil: {order['address']}\n🔗 Telegram: username yo‘q\n"
-                 f"🆔 ID: {order['chat_id']}\n"
-                 f"💵 Jami: ₩{grand_total:,}\n"
-                 f"💳 Mijoz «To‘lov qildim» deb tasdiqladi.\n\n" + "\n".join(items),
-                 admin_order_status_keyboard(order_id, "pending"))
+            for item in order.get("items", []):
+                item_name = str(item.get("name", "Kitob"))
+                qty = int(item.get("qty", 0))
+                unit_price = int(item.get("unit_price", 0))
+                subtotal = unit_price * qty
+                items.append(
+                    f"• {item_name} × {qty} = ₩{subtotal:,}"
+                )
+
+            # Eski buyurtmalarda items bo‘lmasligi mumkin.
+            # Shunda cart orqali kitob nomlarini tiklaymiz.
+            if not items:
+                for bid, qty in order.get("cart", {}).items():
+                    b = find_book(int(bid))
+                    item_name = b["name"] if b else "Kitob"
+                    price = effective_price(b) if b else 0
+                    subtotal = price * int(qty)
+                    items.append(
+                        f"• {item_name} × {int(qty)} = ₩{subtotal:,}"
+                    )
+
+            username_value = str(order.get("username", "") or "").strip().lstrip("@")
+            telegram_line = (
+                f"🔗 Telegram: @{username_value}\n"
+                if username_value
+                else "🔗 Telegram: username yo‘q\n"
+            )
+
+            delivery_fee = int(order.get("delivery_fee", DELIVERY_FEE))
+            book_total = int(order.get("total", total))
+            order_grand_total = int(order.get("grand_total", grand_total))
+
+            admin_text = (
+                f"🛒 YANGI BUYURTMA №{order_id}\n\n"
+                f"👤 Ism: {order.get('name', '—')}\n"
+                f"📱 Telefon: {order.get('phone', '—')}\n"
+                f"📍 Manzil: {order.get('address', '—')}\n"
+                f"{telegram_line}"
+                f"🆔 ID: {order.get('chat_id', '—')}\n\n"
+                f"📚 BUYURTMA QILINGAN KITOBLAR:\n"
+                + ("\n".join(items) if items else "• Kitob ma’lumoti topilmadi")
+                + "\n\n"
+                + f"💰 Kitoblar jami: ₩{book_total:,}\n"
+                + f"🚚 Yetkazib berish: ₩{delivery_fee:,}\n"
+                + f"💵 JAMI TO‘LOV: ₩{order_grand_total:,}\n"
+                + "💳 Mijoz «To‘lov qildim» deb tasdiqladi."
+            )
+
+            send(
+                int(ADMIN_ID),
+                admin_text,
+                admin_order_status_keyboard(order_id, "pending")
+            )
         except Exception as e:
             print("Adminga buyurtma yuborish xatosi:", e)
 
