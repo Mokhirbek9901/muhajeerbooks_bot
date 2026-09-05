@@ -717,9 +717,9 @@ def main_menu(chat_id):
         [{"text": "🔥 Tavsiya etilgan"}, {"text": "🆕 Yangi kitoblar"}],
         [{"text": "🏆 Eng ko‘p sotilgan"}],
         [{"text": "🎯 Menga kitob tanla"}],
-        [{"text": "🛒 Savatcha"}, {"text": "📜 Mening buyurtmalarim"}],
+        [{"text": "🛒 Savatcha"}, {"text": "📦 Zakaz berish"}],
+        [{"text": "📜 Mening buyurtmalarim"}, {"text": "📞 Bog‘lanish"}],
         [{"text": "🔢 Buyurtmani tekshirish"}],
-        [{"text": "📦 Zakaz berish"}, {"text": "📞 Bog‘lanish"}],
     ]
 
     if is_admin(chat_id):
