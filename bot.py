@@ -4,6 +4,8 @@ import json
 import urllib.request
 import urllib.parse
 import random
+import io
+
 from datetime import datetime, timedelta
 
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -102,6 +104,130 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
         )
 
     return api("editMessageText", data)
+
+
+def send_document(chat_id, filename, content, caption=""):
+    """Telegramga JSON backup faylini multipart orqali yuboradi."""
+    boundary = "----WebKitFormBoundaryBackupBot"
+    body = bytearray()
+
+    def add_field(name, value):
+        body.extend((f"--{boundary}\r\n").encode())
+        body.extend((f'Content-Disposition: form-data; name="{name}"\r\n\r\n').encode())
+        body.extend(str(value).encode())
+        body.extend(b"\r\n")
+
+    add_field("chat_id", chat_id)
+    if caption:
+        add_field("caption", caption)
+
+    body.extend((f"--{boundary}\r\n").encode())
+    body.extend((f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n').encode())
+    body.extend(b"Content-Type: application/json\r\n\r\n")
+    body.extend(content.encode("utf-8"))
+    body.extend(b"\r\n")
+    body.extend((f"--{boundary}--\r\n").encode())
+
+    request = urllib.request.Request(
+        f"{API}/sendDocument",
+        data=bytes(body),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.loads(response.read().decode())
+
+
+def create_backup():
+    """Botning barcha doimiy ma'lumotlarini bitta JSON faylga yig'adi."""
+    refresh_books()
+    load_orders()
+    load_users()
+    load_favorites()
+    load_ratings()
+    load_restock()
+    return json.dumps({
+        "backup_version": 1,
+        "created_at": datetime.now().isoformat(),
+        "books": books,
+        "orders": orders,
+        "users": users,
+        "favorites": favorites,
+        "ratings": ratings,
+        "restock_subscribers": restock_subscribers
+    }, ensure_ascii=False, indent=2)
+
+
+def restore_backup_file(path):
+    """Backup JSONni tekshiradi va barcha doimiy ma'lumotlarni qayta tiklaydi."""
+    global books, orders, users, favorites, ratings, restock_subscribers
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict) or not isinstance(data.get("books"), list):
+        raise ValueError("Backup fayli noto'g'ri yoki eski formatda.")
+
+    restored = {
+        "orders": data.get("orders", {}),
+        "users": data.get("users", {}),
+        "favorites": data.get("favorites", {}),
+        "ratings": data.get("ratings", {}),
+        "restock_subscribers": data.get("restock_subscribers", {})
+    }
+
+    # Avval vaqtinchalik fayllarga yozamiz. Hammasi muvaffaqiyatli bo'lsa almashtiramiz.
+    payloads = {
+        BOOKS_FILE: data["books"],
+        ORDERS_FILE: restored["orders"],
+        USERS_FILE: restored["users"],
+        FAVORITES_FILE: restored["favorites"],
+        RATINGS_FILE: restored["ratings"],
+        RESTOCK_FILE: restored["restock_subscribers"]
+    }
+
+    temp_files = []
+    try:
+        for target, value in payloads.items():
+            tmp = target + ".restore.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(value, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            temp_files.append((tmp, target))
+
+        for tmp, target in temp_files:
+            os.replace(tmp, target)
+    except Exception:
+        for tmp, _ in temp_files:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+        raise
+
+    load_books()
+    load_orders()
+    load_users()
+    load_favorites()
+    load_ratings()
+    load_restock()
+    return len(books), len(orders), len(users)
+
+
+def download_telegram_file(file_id, destination):
+    """Telegram documentini botga yuklab oladi."""
+    result = api("getFile", {"file_id": file_id})
+    file_path = result.get("result", {}).get("file_path")
+    if not file_path:
+        raise ValueError("Telegram fayl manzili topilmadi.")
+
+    url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
+    with urllib.request.urlopen(url, timeout=60) as response:
+        content = response.read()
+
+    with open(destination, "wb") as f:
+        f.write(content)
 
 
 # =========================
@@ -739,6 +865,7 @@ def admin_menu():
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
+            [{"text": "💾 Backup"}, {"text": "📥 Backup tiklash"}],
             [{"text": "🏠 Asosiy menyu"}],
         ],
         "resize_keyboard": True
@@ -1396,6 +1523,46 @@ def handle_message(message):
     username = user.get("username", "")
     register_user(chat_id, user)
 
+    # =========================
+    # ADMIN BACKUP RESTORE
+    # =========================
+    if message.get("document") and str(chat_id) == str(ADMIN_ID):
+        document = message["document"]
+        file_name = document.get("file_name", "")
+        state_now = states.get(chat_id, {})
+        if state_now.get("action") == "restore_backup":
+            if not file_name.lower().endswith(".json"):
+                send(chat_id, "❌ Faqat .json backup faylini yuboring.", admin_menu())
+                return
+
+            restore_path = os.path.join(DATA_DIR, "restore_backup.json")
+            try:
+                download_telegram_file(document["file_id"], restore_path)
+                book_count, order_count, user_count = restore_backup_file(restore_path)
+                states.pop(chat_id, None)
+                try:
+                    os.remove(restore_path)
+                except Exception:
+                    pass
+                send(
+                    chat_id,
+                    "✅ BACKUP TIKLANDI\n\n"
+                    f"📚 Kitoblar: {book_count} ta\n"
+                    f"📦 Buyurtmalar: {order_count} ta\n"
+                    f"👥 Foydalanuvchilar: {user_count} ta\n\n"
+                    "Endi bot ma'lumotlari tiklangan holatda ishlaydi.",
+                    admin_menu()
+                )
+            except Exception as e:
+                states.pop(chat_id, None)
+                try:
+                    if os.path.exists(restore_path):
+                        os.remove(restore_path)
+                except Exception:
+                    pass
+                send(chat_id, f"❌ Backup tiklanmadi: {e}", admin_menu())
+            return
+
     state = states.get(chat_id)
 
     # =========================
@@ -1482,6 +1649,32 @@ def handle_message(message):
             send(
                 chat_id,
                 "📢 Barcha bot foydalanuvchilariga yuboriladigan xabarni yozing.\n\n"
+                "❌ Bekor qilish uchun tugmani bosing.",
+                {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True}
+            )
+            return
+
+        if text == "💾 Backup":
+            try:
+                backup = create_backup()
+                send_document(
+                    chat_id,
+                    "muhajeer_books_backup.json",
+                    backup,
+                    "💾 Backup tayyor. Shu faylni saqlab qo‘ying. Yangi kod/deploydan keyin ma'lumotlarni tiklash uchun kerak bo‘ladi."
+                )
+                send(chat_id, "✅ Backup yuborildi. Uni telefoningizga yoki Telegramdagi Saved Messages'ga saqlab qo‘ying.", admin_menu())
+            except Exception as e:
+                send(chat_id, f"❌ Backup yaratilmadi: {e}", admin_menu())
+            return
+
+        if text == "📥 Backup tiklash":
+            states[chat_id] = {"action": "restore_backup"}
+            send(
+                chat_id,
+                "📥 Backup tiklash\n\n"
+                "Oldin bot bergan `muhajeer_books_backup.json` faylini shu yerga yuboring.\n\n"
+                "⚠️ Backup tiklanganda hozirgi kitoblar, buyurtmalar va foydalanuvchilar ma'lumotlari backupdagi holat bilan almashtiriladi.\n\n"
                 "❌ Bekor qilish uchun tugmani bosing.",
                 {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True}
             )
