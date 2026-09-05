@@ -1715,11 +1715,18 @@ def handle_message(message):
             # Admin ham doim diskdagi eng yangi qoldiqni ko‘rsin.
             refresh_books()
             lines = ["📦 Ombor qoldig‘i:"]
+            total_stock = 0
 
             for b in books:
+                stock = int(b.get("stock", 0))
+                total_stock += stock
                 lines.append(
-                    f"• {b['name']} — {int(b['stock'])} ta"
+                    f"• {b['name']} — {stock} ta"
                 )
+
+            lines.append(
+                f"\n📚 JAMI QOLGAN KITOBLAR: {total_stock} ta"
+            )
 
             send(
                 chat_id,
