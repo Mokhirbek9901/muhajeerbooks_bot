@@ -12,6 +12,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: Fix patch script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/admin_features_v2.py')
+          s=p.read_text(encoding='utf-8')
+          a="r('            \"old_price\": 0,\\n            \"photo_id\": \"\",','            \"old_price\": 0,\\n            \"cost_price\": 0,\\n            \"photo_id\": \"\",','assasin-cost')\nr('            \"old_price\": 0,\\n            \"photo_id\": \"\",\\n            \"cover\": \"Ko‘rsatilmagan\",','            \"old_price\": 0,\\n            \"cost_price\": 0,\\n            \"photo_id\": \"\",\\n            \"cover\": \"Ko‘rsatilmagan\",','default-cost')"
+          b="old_cost='            \\\"old_price\\\": 0,\\\\n            \\\"photo_id\\\": \\\"\\\",'\nif t.count(old_cost)!=2: raise RuntimeError(f'cost-defaults: {t.count(old_cost)}')\nt=t.replace(old_cost,'            \\\"old_price\\\": 0,\\\\n            \\\"cost_price\\\": 0,\\\\n            \\\"photo_id\\\": \\\"\\\",')"
+          if a not in s: raise SystemExit('pre-fix anchor not found')
+          p.write_text(s.replace(a,b,1),encoding='utf-8')
+          PY
       - name: Patch bot
         run: python .github/admin_features_v2.py
       - name: Syntax check
