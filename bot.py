@@ -915,6 +915,7 @@ def admin_menu():
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
+            [{"text": "🧪 Random xabarni sinash"}],
             [{"text": "💾 Backup"}, {"text": "📥 Backup tiklash"}],
             [{"text": "🏠 Asosiy menyu"}],
         ],
@@ -1289,7 +1290,7 @@ def check_inactive_users(force=False):
 
     load_users()
     changed = False
-    threshold = now - (INACTIVE_DAYS * 24 * 60 * 60)
+    period = INACTIVE_DAYS * 24 * 60 * 60
 
     for uid, user in list(users.items()):
         if str(uid) == str(ADMIN_ID):
@@ -1302,13 +1303,20 @@ def check_inactive_users(force=False):
         except Exception:
             last_active = 0
 
-        if last_active <= 0 or last_active > threshold:
+        # Agar xabar allaqachon yuborilgan bo‘lsa, keyingi 30 kunni
+        # aynan o‘sha xabar yuborilgan vaqtdan hisoblaymiz.
+        last_reminder = user.get("inactive_message_sent", 0)
+        try:
+            last_reminder = float(last_reminder or 0)
+        except Exception:
+            last_reminder = 0
+
+        reference_time = max(last_active, last_reminder)
+        if reference_time <= 0 or now - reference_time < period:
             continue
 
-        # Bir marta yuboramiz. Mijoz qayta foydalansa register_user buni tozalaydi.
-        if user.get("inactive_message_sent"):
-            continue
-
+        # 30 kun o‘tgach yana random xabar yuboriladi.
+        # Foydalanuvchi botga kirsa register_user inactive_message_sent=False qiladi.
         if send_inactive_message(int(uid)):
             user["inactive_message_sent"] = int(now)
             changed = True
@@ -1952,6 +1960,22 @@ def handle_message(message):
         if text == "👥 Foydalanuvchilar":
             states.pop(chat_id, None)
             send(chat_id, admin_users_text(), admin_menu())
+            return
+
+        if text == "🧪 Random xabarni sinash":
+            states.pop(chat_id, None)
+            try:
+                if send_inactive_message(chat_id):
+                    send(
+                        chat_id,
+                        "✅ Test xabari yuborildi. 15 ta variantdan bittasi random tanlandi.",
+                        admin_menu()
+                    )
+                else:
+                    send(chat_id, "❌ Test xabarini yuborib bo‘lmadi.", admin_menu())
+            except Exception as e:
+                print("Random test xabari xatosi:", e)
+                send(chat_id, f"❌ Test xabarini yuborib bo‘lmadi: {e}", admin_menu())
             return
 
         if text == "📢 Xabar yuborish":
