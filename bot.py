@@ -2193,14 +2193,9 @@ def handle_message(message):
         preview, _, _ = order_preview_text(state, show_payment_info=False)
         send(
             chat_id,
-            "📸 To‘lov cheki qabul qilindi.\n"
-            "⚠️ Buyurtmangiz hali yakunlanmagan.\n\n"
-            "Ma’lumotlaringizni tekshiring va buyurtmani tugatish uchun \
-"
-            "«✅ Buyurtmani tasdiqlash» tugmasini bosing.\n\n"
-            "Tasdiqlaganingizdan so‘ng buyurtma admin tomonidan tekshiriladi va buyurtma jo‘natish bosqichiga o‘tadi.\n\n"
+            "📸 To‘lov cheki yuborildi.\n\n"
             + preview + "\n\n" + order_customer_info_text(state)
-            + "\n\nMa’lumotlarni tekshirib, buyurtmani tasdiqlang.",
+            + "\n\nMa’lumotlaringizni tekshirib, buyurtmani tasdiqlang.",
             order_edit_keyboard(state)
         )
         return
@@ -3113,10 +3108,7 @@ def handle_message(message):
         customer_info = order_customer_info_text(state)
         extra = ""
         if state.get("payment_declared", False):
-            extra = (
-                "\n\n⚠️ Buyurtmangiz hali yakunlanmagan.\n"
-                "Ma’lumotlarni tekshirib, buyurtmani tugatish uchun «✅ Buyurtmani tasdiqlash» tugmasini bosing."
-            )
+            extra = "\n\nMa’lumotlaringizni tekshirib, buyurtmani tasdiqlang."
 
         send(
             chat_id,
