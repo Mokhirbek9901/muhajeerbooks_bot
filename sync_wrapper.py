@@ -137,8 +137,6 @@ def sync_loop():
             local = _read_books()
             current_hash = _hash(local)
 
-            # Birinchi ishga tushishda Telegram botdagi real books.json manba hisoblanadi.
-            # Keyin esa faqat bot fayli o‘zgarganda cloudga yuboriladi.
             if local and (first or current_hash != last_hash):
                 _push(local)
 
@@ -167,4 +165,5 @@ if SUPABASE_URL and SUPABASE_ANON_KEY and SYNC_SECRET:
 else:
     print("Supabase sync environment variablelari topilmadi; bot odatdagi rejimda ishlaydi.")
 
+# Railway production starts from this wrapper so bot va ilova bitta katalogdan foydalanadi.
 runpy.run_path("bot.py", run_name="__main__")
