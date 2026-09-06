@@ -2194,6 +2194,8 @@ def handle_message(message):
         send(
             chat_id,
             "📸 To‘lov cheki yuborildi.\n\n"
+            "⚠️ DIQQAT!\n"
+            "Buyurtmani tugatish uchun «✅ Buyurtmani tasdiqlash» tugmasini bosing.\n\n"
             + preview + "\n\n" + order_customer_info_text(state)
             + "\n\nMa’lumotlaringizni tekshirib, buyurtmani tasdiqlang.",
             order_edit_keyboard(state)
