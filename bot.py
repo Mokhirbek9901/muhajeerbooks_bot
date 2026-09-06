@@ -4146,7 +4146,8 @@ def handle_callback(callback):
 
         send(
             order["chat_id"],
-            "✅ BUYURTMANGIZ QABUL QILINDI!\n\n" + order_receipt_text(order),
+            "✅ BUYURTMANGIZ QABUL QILINDI!\n\n" + order_receipt_text(order) +
+            "\n\n📦 Kitoblaringiz pochtaga topshirilganda sizga alohida xabar yuboriladi.",
             main_menu(order["chat_id"])
         )
         return
