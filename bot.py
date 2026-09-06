@@ -1759,17 +1759,56 @@ def admin_report_text(period="all"):
     books_revenue = sum(int(o.get("total", 0)) for o in successful)
     delivery_revenue = sum(int(o.get("delivery_fee", DELIVERY_FEE)) for o in successful)
     avg_order = revenue / len(successful) if successful else 0
+    free_delivery_orders = [
+        o for o in successful
+        if int(o.get("delivery_fee", DELIVERY_FEE)) == 0
+    ]
+    free_delivery_cost = len(free_delivery_orders) * int(DELIVERY_FEE)
 
     sold = {}
+    category_sales = {}
     customer_totals = {}
+    customer_order_counts = {}
     for o in successful:
         cid = str(o.get("chat_id"))
         customer_totals[cid] = customer_totals.get(cid, 0) + int(o.get("grand_total", 0))
+        customer_order_counts[cid] = customer_order_counts.get(cid, 0) + 1
         for bid, qty in o.get("cart", {}).items():
-            sold[int(bid)] = sold.get(int(bid), 0) + int(qty)
+            qty = int(qty)
+            sold[int(bid)] = sold.get(int(bid), 0) + qty
+            b = find_book(bid)
+            category = normalize_category(b.get("category")) if b else "Boshqalar"
+            category_sales[category] = category_sales.get(category, 0) + qty
 
     top = sorted(sold.items(), key=lambda x: x[1], reverse=True)[:10]
     top_customers = sorted(customer_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    if category_sales:
+        top_category_name, top_category_qty = max(category_sales.items(), key=lambda x: x[1])
+    else:
+        top_category_name, top_category_qty = "Hali sotuv yo‘q", 0
+
+    repeat_customers = sum(1 for count in customer_order_counts.values() if count >= 2)
+    unique_customers = len(customer_order_counts)
+    repeat_pct = (repeat_customers / unique_customers * 100) if unique_customers else 0
+
+    all_successful_after_reset = [
+        o for o in orders.values()
+        if int(o.get("order_id", 0) or 0) >= STATS_RESET_ORDER_ID
+        and o.get("status") in paid_statuses
+    ]
+    first_order_by_customer = {}
+    for o in all_successful_after_reset:
+        cid = str(o.get("chat_id"))
+        oid = int(o.get("order_id", 0) or 0)
+        if cid not in first_order_by_customer or oid < first_order_by_customer[cid]:
+            first_order_by_customer[cid] = oid
+
+    selected_success_ids = {int(o.get("order_id", 0) or 0) for o in successful}
+    new_customers = sum(
+        1 for oid in first_order_by_customer.values()
+        if oid in selected_success_ids
+    )
 
     label = {"all":"Barcha vaqt", "today":"Bugun", "week":"Oxirgi 7 kun", "month":"Shu oy"}.get(period, "Barcha vaqt")
     lines = [
@@ -1785,7 +1824,12 @@ def admin_report_text(period="all"):
         f"📚 Kitoblar savdosi: ₩{books_revenue:,}",
         f"🚚 Yetkazib berish: ₩{delivery_revenue:,}",
         f"📈 O‘rtacha buyurtma: ₩{avg_order:,.0f}",
-        f"📚 Sotilgan kitoblar: {sum(sold.values())} dona", "",
+        f"📚 Sotilgan kitoblar: {sum(sold.values())} dona",
+        f"👤 Yangi mijozlar: {new_customers} ta",
+        f"🔁 Qayta xarid qilganlar: {repeat_customers} ta ({repeat_pct:.1f}%)",
+        (f"🏷 Eng ko‘p sotilgan kategoriya: {top_category_name} — {top_category_qty} dona"
+         if category_sales else "🏷 Eng ko‘p sotilgan kategoriya: hali sotuv yo‘q"),
+        f"🎁 Bepul yetkazishga ketgan: ₩{free_delivery_cost:,} ({len(free_delivery_orders)} ta buyurtma)", "",
         "🏆 TOP 10 KITOB:"
     ]
 
