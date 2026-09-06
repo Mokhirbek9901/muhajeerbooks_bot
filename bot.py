@@ -1864,7 +1864,7 @@ def finalize_order(chat_id):
         return
 
     if not state.get("payment_declared", False):
-        send(chat_id, "💳 Avval to‘lovni amalga oshiring va «💳 To‘lov qildim» tugmasini bosing.",
+        send(chat_id, "💳 Avval to‘lovni amalga oshiring va «📸 To‘lov chekini yuborish» tugmasini bosing.",
              order_edit_keyboard(state))
         return
 
@@ -1996,7 +1996,7 @@ def finalize_order(chat_id):
                 + f"💰 Kitoblar jami: ₩{book_total:,}\n"
                 + f"🚚 Yetkazib berish: ₩{delivery_fee:,}\n"
                 + f"💵 JAMI TO‘LOV: ₩{order_grand_total:,}\n"
-                + "💳 Mijoz «To‘lov qildim» deb tasdiqladi."
+                + "💳 Mijoz to‘lov chekini yubordi."
             )
 
             send(
@@ -2483,7 +2483,7 @@ def handle_message(message):
                     buttons = []
                     for b in result[:30]:
                         buttons.append([{"text": f"✏️ #{b['id']} {b['name']}", "callback_data": f"edit_{b['id']}"}])
-                    buttons.append([{ "text":"⬅️ Admin panel", "callback_data":"admin" }])
+                    buttons.append([{ "text":"⬅️ Admin panel","callback_data":"admin" }])
                     send(chat_id, f"🔎 Topildi: {len(result)} ta", {"inline_keyboard":buttons})
                 return
 
@@ -2973,6 +2973,15 @@ def handle_message(message):
     # =========================
 
     if text == "❌ Bekor qilish":
+        current_state = states.get(chat_id, {})
+        if current_state.get("payment_declared", False):
+            send(
+                chat_id,
+                "📸 To‘lov cheki yuborilgan. Endi ma’lumotlarni tekshirib, buyurtmani tasdiqlang.",
+                order_edit_keyboard(current_state)
+            )
+            return
+
         states.pop(chat_id, None)
 
         send(
@@ -3027,7 +3036,8 @@ def handle_message(message):
 
         send(
             chat_id,
-            "📍 Yetkazib berish manzilingizni yozing:"
+            "📍 Manzil va xona raqamini to‘liq yozing.\n\n"
+            "Masalan: 경상북도 경산시 계양로 37길 7-3, 808호"
         )
         return
 
@@ -3099,8 +3109,8 @@ def handle_message(message):
         extra = ""
         if state.get("payment_declared", False):
             extra = (
-                "\n\n💳 To‘lovingiz belgilandi.\n"
-                "⚠️ Ma’lumotlarni tekshirib, «✅ Tasdiqlash» tugmasini bosing."
+                "\n\n💳 To‘lov cheki yuborildi.\n"
+                "⚠️ Ma’lumotlarni tekshirib, «✅ Buyurtmani tasdiqlash» tugmasini bosing."
             )
 
         send(
@@ -3115,10 +3125,6 @@ def handle_message(message):
     # =========================
 
     if state and state.get("action") == "order_confirm":
-        if text == "❌ Bekor qilish":
-            states.pop(chat_id, None)
-            send(chat_id, "Buyurtma bekor qilindi.", main_menu(chat_id))
-            return
         if text == "✅ Buyurtmani tasdiqlash":
             finalize_order(chat_id)
             return
@@ -3749,6 +3755,14 @@ def handle_callback(callback):
         return
 
     if data == "order_cancel_cb":
+        state = states.get(chat_id)
+        if state and state.get("payment_declared", False):
+            send(
+                chat_id,
+                "📸 To‘lov cheki yuborilgan. Endi buyurtmani bekor qilib bo‘lmaydi. Ma’lumotlarni tekshirib, tasdiqlang.",
+                order_edit_keyboard(state)
+            )
+            return
         states.pop(chat_id, None)
         send(chat_id, "Buyurtma bekor qilindi.", main_menu(chat_id))
         return
@@ -3756,6 +3770,13 @@ def handle_callback(callback):
     if data == "order_payment_done":
         state = states.get(chat_id)
         if not state or state.get("action") != "order_confirm":
+            return
+        if state.get("payment_declared", False):
+            send(
+                chat_id,
+                "📸 To‘lov cheki allaqachon yuborilgan. Ma’lumotlarni tekshirib, buyurtmani tasdiqlang.",
+                order_edit_keyboard(state)
+            )
             return
         state["action"] = "awaiting_receipt"
         send(
@@ -3772,7 +3793,7 @@ def handle_callback(callback):
         if not state or state.get("action") != "order_confirm":
             return
         if not state.get("payment_declared", False):
-            send(chat_id, "💳 Avval «💳 To‘lov qildim» tugmasini bosing.",
+            send(chat_id, "💳 Avval «📸 To‘lov chekini yuborish» tugmasini bosing.",
                  order_edit_keyboard(state))
             return
         finalize_order(chat_id)
@@ -3781,7 +3802,7 @@ def handle_callback(callback):
     if data in ("orderedit_name", "orderedit_phone", "orderedit_address"):
         state = states.get(chat_id)
         if not state or "cart" not in state: return
-        prompts = {"orderedit_name":"📝 Yangi ismingizni yozing:", "orderedit_phone":"📱 Yangi telefon raqamingizni yozing:", "orderedit_address":"📍 Yangi manzilingizni yozing:"}
+        prompts = {"orderedit_name":"📝 Yangi ismingizni yozing:", "orderedit_phone":"📱 Yangi telefon raqamingizni yozing:", "orderedit_address":"📍 Yangi manzil va xona raqamini to‘liq yozing.\n\nMasalan: 경상북도 경산시 계양로 37길 7-3, 808호"}
         state["action"] = {"orderedit_name":"edit_order_name", "orderedit_phone":"edit_order_phone", "orderedit_address":"edit_order_address"}[data]
         send(chat_id, prompts[data])
         return
