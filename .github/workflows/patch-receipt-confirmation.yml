@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Update receipt confirmation wording
+      - name: Update final confirmation wording
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -22,34 +22,14 @@ jobs:
           path = Path('bot.py')
           text = path.read_text(encoding='utf-8')
 
-          old = (
-              '            "📸 To‘lov cheki yuborildi.\\n"\n'
-              '            "⏳ To‘lov admin tomonidan tekshiriladi.\\n\\n"\n'
-          )
-          new = (
-              '            "📸 To‘lov cheki qabul qilindi.\\n"\n'
-              '            "⚠️ Buyurtmangiz hali yakunlanmagan.\\n\\n"\n'
-              '            "Ma’lumotlaringizni tekshiring va buyurtmani tugatish uchun \\\n"\n'
-              '            "«✅ Buyurtmani tasdiqlash» tugmasini bosing.\\n\\n"\n'
-              '            "Tasdiqlaganingizdan so‘ng buyurtma admin tomonidan tekshiriladi va keyingi bosqichga o‘tadi.\\n\\n"\n'
-          )
+          old = 'Tasdiqlaganingizdan so‘ng buyurtma admin tomonidan tekshiriladi va keyingi bosqichga o‘tadi.'
+          new = 'Tasdiqlaganingizdan so‘ng buyurtma admin tomonidan tekshiriladi va buyurtma jo‘natish bosqichiga o‘tadi.'
 
           count = text.count(old)
           if count != 1:
-              raise SystemExit(f'Primary receipt message expected once, found {count}')
+              raise SystemExit(f'Confirmation sentence expected once, found {count}')
+
           text = text.replace(old, new, 1)
-
-          old_extra = (
-              '                "\\n\\n💳 To‘lov cheki yuborildi.\\n"\n'
-              '                "⚠️ Ma’lumotlarni tekshirib, «✅ Buyurtmani tasdiqlash» tugmasini bosing."\n'
-          )
-          new_extra = (
-              '                "\\n\\n⚠️ Buyurtmangiz hali yakunlanmagan.\\n"\n'
-              '                "Ma’lumotlarni tekshirib, buyurtmani tugatish uchun «✅ Buyurtmani tasdiqlash» tugmasini bosing."\n'
-          )
-          if old_extra in text:
-              text = text.replace(old_extra, new_extra, 1)
-
           path.write_text(text, encoding='utf-8')
           PY
 
@@ -61,5 +41,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bot.py
-          git diff --cached --quiet || git commit -m "Clarify receipt confirmation step"
+          git diff --cached --quiet || git commit -m "Clarify order shipping step"
           git push
