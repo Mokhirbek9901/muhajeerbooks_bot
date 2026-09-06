@@ -23,6 +23,7 @@ FAVORITES_FILE = os.path.join(DATA_DIR, "favorites.json")
 RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
 RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 LOW_STOCK_LIMIT = 2
+STATS_RESET_ORDER_ID = 1788693321000  # 2026-09-06 16:15:21 Asia/Tashkent
 
 # =========================
 # FAOL BO'LMAGAN MIJOZLAR
@@ -1745,7 +1746,7 @@ def admin_report_text(period="all"):
             return dt.year == now.year and dt.month == now.month
         return True
 
-    selected = [o for o in orders.values() if included(o)]
+    selected = [o for o in orders.values() if included(o) and int(o.get("order_id", 0) or 0) >= STATS_RESET_ORDER_ID]
     paid_statuses = ("paid", "shipped", "delivered")
     successful = [o for o in selected if o.get("status") in paid_statuses]
 
