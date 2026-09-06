@@ -1376,11 +1376,14 @@ def order_preview_text(state, show_payment_info=True):
 
     fee = delivery_fee_for_cart(state.get("cart", {}))
     grand_total = total + fee
-    free_note = (
-        "\n🎁 Aksiya qo‘llandi: 4 ta yoki undan ko‘p kitob — yetkazib berish bepul!"
-        if fee == 0
-        else "\nℹ️ 4 ta yoki undan ko‘p kitob xarid qilsangiz, yetkazib berish bepul."
-    )
+    # Chek yuborilgach buyurtma yakuniy tekshiruvda bo‘ladi:
+    # bu bosqichda aksiya reklamasini qayta ko‘rsatmaymiz.
+    if payment_declared:
+        free_note = ""
+    elif fee == 0:
+        free_note = "\n🎁 Aksiya qo‘llandi: 4 ta yoki undan ko‘p kitob — yetkazib berish bepul!"
+    else:
+        free_note = "\nℹ️ 4 ta yoki undan ko‘p kitob xarid qilsangiz, yetkazib berish bepul."
     text = (
         "🧾 BUYURTMANGIZ\n\n"
         + "\n".join(lines)
