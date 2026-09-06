@@ -1090,7 +1090,7 @@ def admin_menu():
             [{"text": "📚 Kitoblar ro‘yxati"}, {"text": "🔎 Kitob qidirish"}],
             [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
-            [{"text": "⚠️ Kam qolgan"}, {"text": "⚡ Tezkor qoldiq"}],
+            [{"text": "⚡ Tezkor qoldiq"}],
             [discount_button],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
             [{"text": "📅 Bugungi hisobot"}],
@@ -1431,7 +1431,8 @@ def quick_stock_list_keyboard(chat_id=None):
         value=int(draft.get(str(bid),b.get("stock",0)))
         buttons.append([
             {"text":"➖1","callback_data":f"qstock_batch_{bid}_-1"},
-            {"text":f"📦 {b['name']} — {value} ta","callback_data":"qstock_noop"},
+            {"text":f"📦 {b['name']}","callback_data":"qstock_noop"},
+            {"text":f"{value} ta","callback_data":"qstock_noop"},
             {"text":"➕1","callback_data":f"qstock_batch_{bid}_1"},
         ])
     buttons.append([{"text":"✅ OK — Saqlash","callback_data":"qstock_save"}])
