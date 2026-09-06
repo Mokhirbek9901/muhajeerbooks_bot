@@ -23,6 +23,7 @@ FAVORITES_FILE = os.path.join(DATA_DIR, "favorites.json")
 RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
 RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 EXPENSES_FILE = os.path.join(DATA_DIR, "expenses.json")
+BOOK_IMPORT_MARKER = os.path.join(DATA_DIR, "books_import_20260906_v1.done")
 LOW_STOCK_LIMIT = 2
 STATS_RESET_ORDER_ID = 1788693321000  # 2026-09-06 16:15:21 Asia/Tashkent
 
@@ -380,13 +381,121 @@ def normalize_category(value):
 def load_books():
     global books
 
+    books_file_exists = os.path.exists(BOOKS_FILE)
     try:
         with open(BOOKS_FILE, "r", encoding="utf-8") as f:
-            books = json.load(f)
-    except Exception:
-        books = DEFAULT_BOOKS[:]
+            loaded_books = json.load(f)
+        if not isinstance(loaded_books, list):
+            raise ValueError("books.json ro‘yxat formatida emas")
+        books = loaded_books
+    except Exception as e:
+        print("books.json o‘qish xatosi:", e)
+        # Mavjud persistent fayl o‘qilmasa, uning ustidan default bilan yozmaymiz.
+        if books_file_exists:
+            if not isinstance(books, list):
+                books = []
+            return
+        books = [dict(b) for b in DEFAULT_BOOKS]
 
     changed = False
+
+    # 2026-09-06: foydalanuvchi bergan yangi partiyani persistent omborga
+    # xavfsiz, bir martalik merge qilamiz. Mavjud nomlar dublikat bo‘lmaydi
+    # va ularning narxi/qoldig‘i ustidan yozilmaydi.
+    if not os.path.exists(BOOK_IMPORT_MARKER):
+        import_items = [
+            ("Dafina", 2, 12000),
+            ("57-polk Falastin", 1, 13000),
+            ("Falsafa devor ortidagi sir", 2, 8000),
+            ("Professor o‘rdakburun", 1, 8000),
+            ("G‘ildiraklar ostida", 1, 13000),
+            ("Vavilondagi eng boy odam", 2, 14000),
+            ("Boy ota kambag‘al ota", 1, 14000),
+            ("O‘yla va boy bo‘l", 2, 15000),
+            ("Yuksalish strategiyasi", 2, 20000),
+            ("Daftar hoshiyasidagi bitiklar", 3, 9000),
+            ("Pul alifbosi", 2, 11000),
+            ("Rizq kalitlari", 2, 15000),
+            ("Ulamolar naznida vaqtning qadri", 2, 14000),
+            ("Fursat (o‘zgarish oni)", 4, 8000),
+            ("Halovat hissini tuy", 2, 8000),
+            ("Men Yusuf", 2, 23000),
+            ("O'limdan keyingi hayot", 1, 14000),
+            ("Ochilmagan maktublar", 1, 15000),
+            ("Qonini sotgan odam", 2, 16000),
+            ("Yettinchi kun", 2, 17000),
+            ("Baxt yelkanlari", 2, 8000),
+            ("Buyuk haqiqat yoxud fitrat qichqirig'i", 3, 8000),
+            ("Sovchilikdan turmushga qadar", 1, 18000),
+            ("Qanday buyuk bo‘lishgan", 2, 13000),
+            ("Otalar yig‘lamaydi", 1, 9000),
+            ("Cho‘pon yutib ketdi", 1, 9000),
+            ("Oyoqyalang bolalar", 2, 9000),
+            ("O‘g‘irlangan diqqat", 1, 19000),
+            ("Hadis va hayot 1-qism", 1, 13000),
+            ("Islom psixologiyasi", 1, 22000),
+            ("12 stul", 1, 17000),
+            ("Oqshom go‘zalliklari", 1, 23000),
+            ("Binafsha 2-qism", 4, 23000),
+            ("Til sayqali", 1, 21000),
+            ("Metin qoyalar", 2, 20000),
+            ("Er xotinga nasihat", 4, 26000),
+            ("Shaxmat ustidagi qotillik", 2, 16000),
+            ("Qur’on qalbiga safar", 1, 21000),
+            ("Muallim soniy yashil", 3, 10000),
+            ("Insonlar sayyorasi", 2, 15000),
+            ("Uzrnoma", 2, 14000),
+        ]
+
+        def import_name_key(value):
+            s = str(value or "").strip().casefold()
+            for ch in ("’", "‘", "`", "ʻ", "ʼ"):
+                s = s.replace(ch, "'")
+            return " ".join(s.split())
+
+        existing_names = {import_name_key(b.get("name", "")) for b in books}
+        next_id = max(
+            [int(b.get("id", 0)) for b in books if str(b.get("id", "")).isdigit()],
+            default=0
+        ) + 1
+        added = 0
+        skipped = 0
+        now_iso = datetime.now().isoformat()
+        for name, stock, price in import_items:
+            key = import_name_key(name)
+            if key in existing_names:
+                skipped += 1
+                continue
+            books.append({
+                "id": next_id,
+                "name": name,
+                "price": int(price),
+                "stock": int(stock),
+                "category": "Boshqalar",
+                "author": "Ko‘rsatilmagan",
+                "description": "Ma’lumot kiritilmagan.",
+                "old_price": 0,
+                "cost_price": 0,
+                "photo_id": "",
+                "cover": "Ko‘rsatilmagan",
+                "recommended": False,
+                "created_at": now_iso
+            })
+            existing_names.add(key)
+            next_id += 1
+            added += 1
+            changed = True
+
+        # Marker faqat books.json muvaffaqiyatli yozilgandan keyin yaratiladi.
+        if changed:
+            save_books()
+        marker_tmp = BOOK_IMPORT_MARKER + ".tmp"
+        with open(marker_tmp, "w", encoding="utf-8") as f:
+            f.write(f"added={added};skipped={skipped};at={datetime.now().isoformat()}\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(marker_tmp, BOOK_IMPORT_MARKER)
+        print(f"BOOK_IMPORT_20260906: added={added} skipped={skipped}")
 
     # GitHub orqali qo‘shilgan kitob: mavjud bo‘lmasa bir marta omborga qo‘shiladi.
     if not any(str(b.get("name", "")).strip().casefold() == "assasin" for b in books):
