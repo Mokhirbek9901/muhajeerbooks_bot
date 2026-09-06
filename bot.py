@@ -845,8 +845,7 @@ def book_detail_keyboard(book, chat_id):
     fav_text = "💔 Sevimlilardan olib tashlash" if fav else "❤️ Sevimlilarga qo‘shish"
     buttons = []
     if int(book.get("stock", 0)) > 0 and int(book.get("price", 0)) > 0:
-        buttons.append([{ "text": "⚡ Hozir sotib olish", "callback_data": f"fastbuy_{book['id']}" }])
-        buttons.append([{ "text": "🛒 Savatga qo‘shish", "callback_data": f"addcart_{book['id']}" }])
+        buttons.append([{ "text": "🛒 Xaridga qo‘shish", "callback_data": f"addcart_{book['id']}" }])
     elif int(book.get("stock", 0)) <= 0:
         if str(chat_id) in [str(x) for x in restock_subscribers.get(str(book["id"]), [])]:
             buttons.append([{ "text": "🔔 Xabar berish yoqilgan", "callback_data": "cart_noop" }])
@@ -3800,60 +3799,46 @@ def handle_callback(callback):
         send_book_detail(chat_id, book)
         return
 
-    if data.startswith("fastbuy_"):
+    # Eski xabarlardagi “Hozir sotib olish” tugmasi ham xavfsiz tarzda
+    # savatga qo‘shish oqimiga o‘tadi.
+    if data.startswith("fastbuy_") or data.startswith("addcart_"):
         try:
             book_id = int(data.split("_", 1)[1])
         except (ValueError, IndexError):
             return
+
         book = find_book(book_id)
         if not book or int(book.get("stock", 0)) <= 0 or int(book.get("price", 0)) <= 0:
             send(chat_id, "❌ Bu kitob hozircha mavjud emas.")
             return
 
-        saved = saved_customer_info(chat_id)
-        states[chat_id] = {
-            "action": "order_confirm" if saved else "order_name",
-            "username": users.get(str(chat_id), {}).get("username", ""),
-            "chat_id": chat_id,
-            "cart": {book_id: 1},
-            "payment_declared": False,
-            "fast_buy": True
-        }
-        if saved:
-            states[chat_id].update(saved)
-            preview, total, grand = order_preview_text(states[chat_id])
-            states[chat_id]["total"] = total
-            states[chat_id]["delivery_fee"] = delivery_fee_for_cart(states[chat_id]["cart"])
-            states[chat_id]["grand_total"] = grand
-            send(chat_id, "✅ Oldingi ma’lumotlaringiz ishlatildi.\n\n" + preview + "\n\n" + order_customer_info_text(states[chat_id]), order_edit_keyboard(states[chat_id]))
-        else:
-            book_price = effective_price(book)
-            fee = delivery_fee_for_cart({book_id: 1})
-            grand_total = book_price + fee
-            send(
-                chat_id,
-                f"⚡ TEZ XARID\n\n"
-                f"📖 {book['name']} × 1 = ₩{book_price:,}\n"
-                f"🚚 Yetkazib berish: {delivery_text(fee)}\n"
-                f"💵 JAMI TO‘LOV: ₩{grand_total:,}\n\n"
-                "ℹ️ 4 ta yoki undan ko‘p kitob xarid qilsangiz, yetkazib berish bepul.\n\n"
-                "📦 Buyurtmani pochta orqali yuborishimiz uchun ismingizni yozing:"
-            )
-        return
-
-    if data.startswith("addcart_"):
-        book_id = int(data.split("_", 1)[1])
-        book = find_book(book_id)
-        if not book or int(book.get("stock", 0)) <= 0:
-            send(chat_id, "❌ Bu kitob hozircha mavjud emas.")
-            return
         cart = carts.setdefault(chat_id, {})
         current = int(cart.get(book_id, 0))
         if current >= int(book["stock"]):
             send(chat_id, f"❌ Omborda faqat {book['stock']} ta bor.")
             return
+
         cart[book_id] = current + 1
-        send(chat_id, f"✅ {book['name']} savatchaga qo‘shildi.", main_menu(chat_id))
+        total_quantity = cart_quantity(cart)
+        books_total = 0
+        for cart_book_id, qty in cart.items():
+            cart_book = find_book(cart_book_id)
+            if cart_book:
+                books_total += effective_price(cart_book) * int(qty)
+
+        send(
+            chat_id,
+            f"✅ {book['name']} xaridga qo‘shildi.\n\n"
+            f"🛒 Savatda: {total_quantity} ta kitob\n"
+            f"💰 Kitoblar jami: ₩{books_total:,}\n\n"
+            "Endi nima qilasiz? 👇",
+            {
+                "inline_keyboard": [
+                    [{"text": "📚 Yana kitob tanlash", "callback_data": "books"}],
+                    [{"text": "✅ Buyurtma berish", "callback_data": "cart_order"}],
+                ]
+            }
+        )
         return
 
     if data.startswith("adminorder_"):
