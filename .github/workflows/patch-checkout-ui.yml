@@ -1,0 +1,62 @@
+name: Patch checkout UI
+
+on:
+  push:
+    paths:
+      - '.github/patch-checkout-ui.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch checkout texts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("bot.py")
+          text = path.read_text(encoding="utf-8")
+
+          old_phone = '''        send(
+              chat_id,
+              "📞 Telefon raqamingizni yozing:"
+          )'''
+          new_phone = '''        send(
+              chat_id,
+              "📞 Telefon raqamingizni yozing.\\n\\n"
+              "Masalan: 01012345678"
+          )'''
+
+          if old_phone not in text:
+              raise SystemExit("Phone prompt target not found")
+          text = text.replace(old_phone, new_phone, 1)
+
+          old_example = "Masalan: 010-1234-5678"
+          if old_example not in text:
+              raise SystemExit("Phone example target not found")
+          text = text.replace(old_example, "Masalan: 01012345678")
+
+          old_total = '+ f"\\n💵 JAMI TO‘LOV: ₩{grand_total:,}"'
+          new_total = '+ f"\\n\\n━━━━━━━━━━━━━━\\n💵 JAMI TO‘LOV: ₩{grand_total:,}\\n━━━━━━━━━━━━━━"'
+          if text.count(old_total) != 1:
+              raise SystemExit(f"Total target expected once, found {text.count(old_total)}")
+          text = text.replace(old_total, new_total, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Verify Python syntax
+        run: python -m py_compile bot.py
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git diff --cached --quiet || git commit -m "Improve phone prompt and highlight total payment"
+          git push
