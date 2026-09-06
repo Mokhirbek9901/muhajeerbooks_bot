@@ -934,28 +934,18 @@ def order_cart_keyboard(chat_id):
 
 
 def order_edit_keyboard(state=None):
-    # 1-bosqich: mijoz avval to‘lovni qiladi.
-    # Bu bosqichda Ism/Telefon/Manzil/Savat tugmalari ko‘rsatilmaydi.
-    # 2-bosqich: «To‘lov qildim» bosilgach, ma’lumotlarni tekshirish
-    # va xato bo‘lsa tuzatish uchun tahrirlash tugmalari chiqadi.
     paid_declared = bool((state or {}).get("payment_declared", False))
-
-    if not paid_declared:
-        return {
-            "inline_keyboard": [
-                [{"text": "💳 To‘lov qildim", "callback_data": "order_payment_done"}],
-                [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}]
-            ]
-        }
-
     buttons = [
         [{"text": "✏️ Ism", "callback_data": "orderedit_name"},
          {"text": "📱 Telefon", "callback_data": "orderedit_phone"}],
         [{"text": "📍 Manzil", "callback_data": "orderedit_address"},
          {"text": "🛒 Savat", "callback_data": "orderedit_cart"}],
-        [{"text": "✅ Tasdiqlash", "callback_data": "order_confirm_cb"}],
-        [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}]
     ]
+    if paid_declared:
+        buttons.append([{"text": "✅ Buyurtmani tasdiqlash", "callback_data": "order_confirm_cb"}])
+    else:
+        buttons.append([{"text": "📸 To‘lov chekini yuborish", "callback_data": "order_payment_done"}])
+    buttons.append([{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}])
     return {"inline_keyboard": buttons}
 
 
@@ -1166,21 +1156,51 @@ def new_books_keyboard():
 
 
 
+def cart_quantity(cart):
+    return sum(max(0, int(qty)) for qty in cart.values())
+
+
+def delivery_fee_for_cart(cart):
+    # 4 ta yoki undan ko‘p kitob xarid qilinsa yetkazib berish bepul.
+    return 0 if cart_quantity(cart) >= 4 else int(DELIVERY_FEE)
+
+
+def delivery_text(fee):
+    return "BEPUL 🎁" if int(fee) == 0 else f"₩{int(fee):,}"
+
+
+def saved_customer_info(chat_id):
+    profile = users.get(str(chat_id), {})
+    name = str(profile.get("saved_name", "") or "").strip()
+    phone = str(profile.get("saved_phone", "") or "").strip()
+    address = str(profile.get("saved_address", "") or "").strip()
+    if name and phone and address:
+        return {"name": name, "phone": phone, "address": address}
+    return None
+
+
 def cart_text(chat_id):
-    cart=carts.get(chat_id,{})
-    if not cart: return "🛒 Savatcha bo‘sh."
-    lines=[]; total=0
-    for book_id,qty in cart.items():
-        book=find_book(book_id)
-        if not book: continue
-        subtotal=effective_price(book)*int(qty); total+=subtotal
+    cart = carts.get(chat_id, {})
+    if not cart:
+        return "🛒 Savatcha bo‘sh."
+    lines = []
+    total = 0
+    for book_id, qty in cart.items():
+        book = find_book(book_id)
+        if not book:
+            continue
+        subtotal = effective_price(book) * int(qty)
+        total += subtotal
         lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
-    grand_total = total + int(DELIVERY_FEE)
+    fee = delivery_fee_for_cart(cart)
+    grand_total = total + fee
+    bonus = "\n🎁 4 ta va undan ko‘p kitob uchun yetkazib berish bepul!" if fee == 0 else ""
     return (
         "🛒 Savatchangiz:\n\n"
         + "\n".join(lines)
         + f"\n\n💰 Kitoblar jami: ₩{total:,}"
-        + f"\n🚚 Yetkazib berish: ₩{DELIVERY_FEE:,}"
+        + f"\n🚚 Yetkazib berish: {delivery_text(fee)}"
+        + bonus
         + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}"
     )
 
@@ -1350,12 +1370,15 @@ def order_preview_text(state, show_payment_info=True):
             total += subtotal
             lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
 
-    grand_total = total + DELIVERY_FEE
+    fee = delivery_fee_for_cart(state.get("cart", {}))
+    grand_total = total + fee
+    free_note = "\n🎁 4 ta va undan ko‘p kitob uchun yetkazib berish bepul!" if fee == 0 else ""
     text = (
         "🧾 BUYURTMANGIZ\n\n"
         + "\n".join(lines)
         + f"\n\n💰 Kitoblar: ₩{total:,}"
-        + f"\n🚚 Yetkazib berish +₩{DELIVERY_FEE:,}"
+        + f"\n🚚 Yetkazib berish: {delivery_text(fee)}"
+        + free_note
         + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}"
     )
 
@@ -1365,13 +1388,15 @@ def order_preview_text(state, show_payment_info=True):
             f"💳 Karta raqami: {CARD_NUMBER}\n"
             f"🏦 {BANK_NAME}\n"
             f"👤 {CARD_OWNER}\n\n"
-            "⚠️ Iltimos, jami summani yuqoridagi karta raqamiga o‘tkazing.\n\n"
-            "To‘lovni amalga oshirgach, «💳 To‘lov qildim» tugmasini bosing."
+            "⚠️ Jami summani yuqoridagi karta raqamiga o‘tkazing.\n"
+            "So‘ng «📸 To‘lov chekini yuborish» tugmasini bosing."
         )
     return text, total, grand_total
 
 
 
+# =========================
+# MIJOZLAR / QIDIRUV / HISOBOT
 # =========================
 # MIJOZLAR / QIDIRUV / HISOBOT
 # =========================
@@ -1788,7 +1813,8 @@ def finalize_order(chat_id):
                 })
 
     total = sum(int(item["unit_price"]) * int(item["qty"]) for item in payment_items)
-    grand_total = total + int(DELIVERY_FEE)
+    delivery_fee = delivery_fee_for_cart(cart)
+    grand_total = total + delivery_fee
 
     order_id = str(int(time.time() * 1000))
     while order_id in orders:
@@ -1807,16 +1833,25 @@ def finalize_order(chat_id):
         "cart": {str(k): int(v) for k, v in cart.items()},
         "items": saved_items,
         "total": int(total),
-        "delivery_fee": int(DELIVERY_FEE),
+        "delivery_fee": int(delivery_fee),
         "grand_total": int(grand_total),
         "discount": 0,
         "status": "pending",
         "payment_declared": True,
+        "receipt_file_id": state.get("receipt_file_id", ""),
         "created_at": datetime.now().isoformat(timespec="seconds")
     }
 
     orders[order_id] = order
     save_orders()
+
+    # Keyingi buyurtmada mijoz qayta yozmasligi uchun ma’lumotlarni eslab qolamiz.
+    profile = users.setdefault(str(chat_id), {})
+    profile["saved_name"] = order["name"]
+    profile["saved_phone"] = order["phone"]
+    profile["saved_address"] = order["address"]
+    save_users()
+
     carts[chat_id] = {}
     states.pop(chat_id, None)
 
@@ -1885,6 +1920,13 @@ def finalize_order(chat_id):
                 admin_text,
                 admin_order_status_keyboard(order_id, "pending")
             )
+            receipt_file_id = str(order.get("receipt_file_id", "") or "")
+            if receipt_file_id:
+                api("sendPhoto", {
+                    "chat_id": int(ADMIN_ID),
+                    "photo": receipt_file_id,
+                    "caption": f"📸 To‘lov cheki · Buyurtma №{order_id}"
+                })
         except Exception as e:
             print("Adminga buyurtma yuborish xatosi:", e)
 
@@ -2022,6 +2064,57 @@ def handle_message(message):
             return
 
     state = states.get(chat_id)
+
+    # =========================
+    # TO‘LOV CHEKI RASMI
+    # =========================
+    if state and state.get("action") == "awaiting_receipt":
+        if text == "❌ Bekor qilish":
+            states.pop(chat_id, None)
+            send(chat_id, "Buyurtma bekor qilindi.", main_menu(chat_id))
+            return
+        photos = message.get("photo", [])
+        if not photos:
+            send(chat_id, "📸 Iltimos, to‘lov chekining rasmini yuboring.")
+            return
+
+        state["receipt_file_id"] = photos[-1]["file_id"]
+        payment_items = []
+        for book_id, qty in state.get("cart", {}).items():
+            book = find_book(book_id)
+            if book:
+                payment_items.append({
+                    "book_id": str(book_id),
+                    "name": str(book.get("name", "Kitob")),
+                    "qty": int(qty),
+                    "unit_price": int(effective_price(book))
+                })
+
+        if not payment_items:
+            states.pop(chat_id, None)
+            send(chat_id, "❌ Buyurtmadagi kitob topilmadi. Qaytadan urinib ko‘ring.", main_menu(chat_id))
+            return
+
+        total = sum(int(item["unit_price"]) * int(item["qty"]) for item in payment_items)
+        fee = delivery_fee_for_cart(state.get("cart", {}))
+        state["payment_declared"] = True
+        state["payment_items"] = payment_items
+        state["payment_total"] = total
+        state["payment_grand_total"] = total + fee
+        state["total"] = total
+        state["delivery_fee"] = fee
+        state["grand_total"] = total + fee
+        state["action"] = "order_confirm"
+
+        preview, _, _ = order_preview_text(state, show_payment_info=False)
+        send(
+            chat_id,
+            "✅ To‘lov cheki qabul qilindi.\n\n"
+            + preview + "\n\n" + order_customer_info_text(state)
+            + "\n\nMa’lumotlarni tekshirib, buyurtmani tasdiqlang.",
+            order_edit_keyboard(state)
+        )
+        return
 
     # =========================
     # START
@@ -2733,20 +2826,32 @@ def handle_message(message):
             )
             return
 
+        saved = saved_customer_info(chat_id)
         states[chat_id] = {
-            "action": "order_name",
+            "action": "order_confirm" if saved else "order_name",
             "username": username,
             "chat_id": chat_id,
             "cart": dict(cart),
             "payment_declared": False
         }
-
-        send(
-            chat_id,
-            cart_text(chat_id)
-            + "\n\n📝 Buyurtma uchun ismingizni yozing:",
-            order_keyboard()
-        )
+        if saved:
+            states[chat_id].update(saved)
+            preview, total, grand_total = order_preview_text(states[chat_id])
+            states[chat_id]["total"] = total
+            states[chat_id]["delivery_fee"] = delivery_fee_for_cart(cart)
+            states[chat_id]["grand_total"] = grand_total
+            send(
+                chat_id,
+                "✅ Oldingi ma’lumotlaringiz ishlatildi.\n\n"
+                + preview + "\n\n" + order_customer_info_text(states[chat_id]),
+                order_edit_keyboard(states[chat_id])
+            )
+        else:
+            send(
+                chat_id,
+                cart_text(chat_id) + "\n\n📝 Buyurtma uchun ismingizni yozing:",
+                order_keyboard()
+            )
         return
 
     # =========================
@@ -2829,7 +2934,7 @@ def handle_message(message):
         preview, total, grand_total = order_preview_text(state)
 
         state["total"] = total
-        state["delivery_fee"] = DELIVERY_FEE
+        state["delivery_fee"] = delivery_fee_for_cart(state["cart"])
         state["grand_total"] = grand_total
         state["action"] = "order_confirm"
 
@@ -3003,19 +3108,23 @@ def handle_callback(callback):
             return
 
         state_user = users.get(str(chat_id), {})
+        saved = saved_customer_info(chat_id)
         states[chat_id] = {
-            "action": "order_name",
+            "action": "order_confirm" if saved else "order_name",
             "username": state_user.get("username", ""),
             "chat_id": chat_id,
             "cart": dict(cart),
             "payment_declared": False
         }
-
-        send(
-            chat_id,
-            cart_text(chat_id)
-            + "\n\n📝 Buyurtma uchun ismingizni yozing:"
-        )
+        if saved:
+            states[chat_id].update(saved)
+            preview, total, grand = order_preview_text(states[chat_id])
+            states[chat_id]["total"] = total
+            states[chat_id]["delivery_fee"] = delivery_fee_for_cart(cart)
+            states[chat_id]["grand_total"] = grand
+            send(chat_id, "✅ Oldingi ma’lumotlaringiz ishlatildi.\n\n" + preview + "\n\n" + order_customer_info_text(states[chat_id]), order_edit_keyboard(states[chat_id]))
+        else:
+            send(chat_id, cart_text(chat_id) + "\n\n📝 Buyurtma uchun ismingizni yozing:")
         return
 
     # =========================
@@ -3047,6 +3156,7 @@ def handle_callback(callback):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
                 states[chat_id]["payment_declared"] = False
+                states[chat_id].pop("receipt_file_id", None)
                 states[chat_id].pop("payment_items", None)
                 states[chat_id].pop("payment_total", None)
                 states[chat_id].pop("payment_grand_total", None)
@@ -3102,6 +3212,7 @@ def handle_callback(callback):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
                 states[chat_id]["payment_declared"] = False
+                states[chat_id].pop("receipt_file_id", None)
                 states[chat_id].pop("payment_items", None)
                 states[chat_id].pop("payment_total", None)
                 states[chat_id].pop("payment_grand_total", None)
@@ -3137,6 +3248,7 @@ def handle_callback(callback):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = dict(cart)
                 states[chat_id]["payment_declared"] = False
+                states[chat_id].pop("receipt_file_id", None)
                 states[chat_id].pop("payment_items", None)
                 states[chat_id].pop("payment_total", None)
                 states[chat_id].pop("payment_grand_total", None)
@@ -3164,6 +3276,7 @@ def handle_callback(callback):
             if states[chat_id].get("action") == "order_confirm":
                 states[chat_id]["cart"] = {}
                 states[chat_id]["payment_declared"] = False
+                states[chat_id].pop("receipt_file_id", None)
                 states[chat_id].pop("payment_items", None)
                 states[chat_id].pop("payment_total", None)
                 states[chat_id].pop("payment_grand_total", None)
@@ -3515,49 +3628,13 @@ def handle_callback(callback):
         state = states.get(chat_id)
         if not state or state.get("action") != "order_confirm":
             return
-        # To‘lov bosilgan paytdagi narxlarni snapshot qilib saqlaymiz.
-        payment_items = []
-        for book_id, qty in state.get("cart", {}).items():
-            book = find_book(book_id)
-            if book:
-                payment_items.append({
-                    "book_id": str(book_id),
-                    "name": str(book.get("name", "Kitob")),
-                    "qty": int(qty),
-                    "unit_price": int(effective_price(book))
-                })
-
-        if not payment_items:
-            states.pop(chat_id, None)
-            send(
-                chat_id,
-                "❌ Buyurtmadagi kitoblardan biri topilmadi. Iltimos, buyurtmani qaytadan boshlang.",
-                main_menu(chat_id)
-            )
-            return
-
-        total = sum(int(item["unit_price"]) * int(item["qty"]) for item in payment_items)
-        grand = total + int(DELIVERY_FEE)
-        state["payment_declared"] = True
-        state["payment_items"] = payment_items
-        state["payment_total"] = total
-        state["payment_grand_total"] = grand
-        state["total"] = total
-        state["grand_total"] = grand
-
-        preview, _, _ = order_preview_text(state, show_payment_info=False)
-
-        customer_info = order_customer_info_text(state)
-
+        state["action"] = "awaiting_receipt"
         send(
             chat_id,
-            preview
-            + "\n\n"
-            + customer_info
-            + "\n\n"
-            + "💳 To‘lovingiz belgilandi.\n"
-            + "⚠️ Ma’lumotlarni tekshirib, «✅ Tasdiqlash» tugmasini bosing.",
-            order_edit_keyboard(state)
+            "📸 TO‘LOV CHEKI\n\n"
+            "Karta orqali qilgan to‘lovingiz chekining rasmini shu yerga yuboring.\n\n"
+            "Rasm tiniq va summa ko‘rinadigan bo‘lsin.",
+            order_keyboard()
         )
         return
 
@@ -3672,17 +3749,24 @@ def handle_callback(callback):
             send(chat_id, "❌ Bu kitob hozircha mavjud emas.")
             return
 
+        saved = saved_customer_info(chat_id)
         states[chat_id] = {
-            "action": "order_name",
+            "action": "order_confirm" if saved else "order_name",
             "username": users.get(str(chat_id), {}).get("username", ""),
             "chat_id": chat_id,
             "cart": {book_id: 1},
             "payment_declared": False,
             "fast_buy": True
         }
-        send(chat_id,
-             f"⚡ TEZ XARID\n\n📖 {book['name']} × 1 = ₩{effective_price(book):,}\n\n"
-             "📝 Buyurtma uchun ismingizni yozing:")
+        if saved:
+            states[chat_id].update(saved)
+            preview, total, grand = order_preview_text(states[chat_id])
+            states[chat_id]["total"] = total
+            states[chat_id]["delivery_fee"] = delivery_fee_for_cart(states[chat_id]["cart"])
+            states[chat_id]["grand_total"] = grand
+            send(chat_id, "✅ Oldingi ma’lumotlaringiz ishlatildi.\n\n" + preview + "\n\n" + order_customer_info_text(states[chat_id]), order_edit_keyboard(states[chat_id]))
+        else:
+            send(chat_id, f"⚡ TEZ XARID\n\n📖 {book['name']} × 1 = ₩{effective_price(book):,}\n\n📝 Buyurtma uchun ismingizni yozing:")
         return
 
     if data.startswith("addcart_"):
