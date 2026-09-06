@@ -3838,11 +3838,23 @@ def handle_callback(callback):
             if cart_book:
                 books_total += effective_price(cart_book) * int(qty)
 
+        delivery_fee = delivery_fee_for_cart(cart)
+        grand_total = books_total + delivery_fee
+        if delivery_fee == 0:
+            delivery_note = "🎁 4+ kitob aksiyasi qo‘llandi — yetkazib berish BEPUL!"
+        else:
+            delivery_note = "ℹ️ 4 ta yoki undan ko‘p kitob olsangiz, yetkazib berish bepul."
+
         send(
             chat_id,
             f"✅ {book['name']} xaridga qo‘shildi.\n\n"
             f"🛒 Savatda: {total_quantity} ta kitob\n"
-            f"💰 Kitoblar jami: ₩{books_total:,}\n\n"
+            "━━━━━━━━━━━━━━\n"
+            f"💰 Kitoblar narxi: ₩{books_total:,}\n"
+            f"🚚 Yetkazib berish: {delivery_text(delivery_fee)}\n"
+            f"💳 JAMI TO‘LOV: ₩{grand_total:,}\n"
+            "━━━━━━━━━━━━━━\n"
+            f"{delivery_note}\n\n"
             "Endi nima qilasiz? 👇",
             {
                 "inline_keyboard": [
