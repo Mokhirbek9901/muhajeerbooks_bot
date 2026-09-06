@@ -1,1 +1,1 @@
-2026-09-06 receipt confirmation wording patch
+2026-09-06 shipping wording patch
