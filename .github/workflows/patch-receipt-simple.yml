@@ -1,0 +1,86 @@
+name: Patch receipt simple flow
+
+on:
+  push:
+    paths:
+      - '.github/patch-receipt-simple.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Simplify receipt confirmation screen
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('bot.py')
+          text = path.read_text(encoding='utf-8')
+
+          old_prefix = (
+              '            "📸 To‘lov cheki qabul qilindi.\\n"\n'
+              '            "⚠️ Buyurtmangiz hali yakunlanmagan.\\n\\n"\n'
+              '            "Ma’lumotlaringizni tekshiring va buyurtmani tugatish uchun \\\n"\n'
+              '            "«✅ Buyurtmani tasdiqlash» tugmasini bosing.\\n\\n"\n'
+              '            "Tasdiqlaganingizdan so‘ng buyurtma admin tomonidan tekshiriladi va buyurtma jo‘natish bosqichiga o‘tadi.\\n\\n"\n'
+          )
+          new_prefix = '            "📸 To‘lov cheki yuborildi.\\n\\n"\n'
+
+          if text.count(old_prefix) != 1:
+              raise SystemExit(f'Primary receipt prefix expected once, found {text.count(old_prefix)}')
+          text = text.replace(old_prefix, new_prefix, 1)
+
+          old_bottom = '+ "\\n\\nMa’lumotlarni tekshirib, buyurtmani tasdiqlang.",'
+          new_bottom = '+ "\\n\\nMa’lumotlaringizni tekshirib, buyurtmani tasdiqlang.",'
+          if text.count(old_bottom) != 1:
+              raise SystemExit(f'Bottom confirmation expected once, found {text.count(old_bottom)}')
+          text = text.replace(old_bottom, new_bottom, 1)
+
+          old_extra = (
+              '            extra = (\n'
+              '                "\\n\\n⚠️ Buyurtmangiz hali yakunlanmagan.\\n"\n'
+              '                "Ma’lumotlarni tekshirib, buyurtmani tugatish uchun «✅ Buyurtmani tasdiqlash» tugmasini bosing."\n'
+              '            )'
+          )
+          new_extra = (
+              '            extra = "\\n\\nMa’lumotlaringizni tekshirib, buyurtmani tasdiqlang."'
+          )
+          if old_extra in text:
+              text = text.replace(old_extra, new_extra, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify Python syntax
+        run: python -m py_compile bot.py
+
+      - name: Verify final confirmed message unchanged
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('bot.py').read_text(encoding='utf-8')
+          required = [
+              '📸 To‘lov cheki yuborildi.',
+              'Ma’lumotlaringizni tekshirib, buyurtmani tasdiqlang.',
+              '💳 To‘lov admin tomonidan tekshiriladi.',
+              'Tasdiqlangach buyurtma jo‘natish bosqichiga o‘tadi.'
+          ]
+          for item in required:
+              if item not in text:
+                  raise SystemExit(f'Missing expected text: {item}')
+          if 'Buyurtmangiz hali yakunlanmagan.' in text:
+              raise SystemExit('Old warning still present')
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git diff --cached --quiet || git commit -m "Simplify receipt confirmation screen"
+          git push
