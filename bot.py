@@ -22,6 +22,7 @@ USERS_FILE = os.path.join(DATA_DIR, "users.json")
 FAVORITES_FILE = os.path.join(DATA_DIR, "favorites.json")
 RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
 RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
+EXPENSES_FILE = os.path.join(DATA_DIR, "expenses.json")
 LOW_STOCK_LIMIT = 2
 STATS_RESET_ORDER_ID = 1788693321000  # 2026-09-06 16:15:21 Asia/Tashkent
 
@@ -127,6 +128,7 @@ users = {}
 favorites = {}
 ratings = {}
 restock_subscribers = {}
+expenses = {}
 
 
 # =========================
@@ -218,6 +220,7 @@ def create_backup():
     load_favorites()
     load_ratings()
     load_restock()
+    load_expenses()
     return json.dumps({
         "backup_version": 1,
         "created_at": datetime.now().isoformat(),
@@ -226,13 +229,14 @@ def create_backup():
         "users": users,
         "favorites": favorites,
         "ratings": ratings,
-        "restock_subscribers": restock_subscribers
+        "restock_subscribers": restock_subscribers,
+        "expenses": expenses
     }, ensure_ascii=False, indent=2)
 
 
 def restore_backup_file(path):
     """Backup JSONni tekshiradi va barcha doimiy ma'lumotlarni qayta tiklaydi."""
-    global books, orders, users, favorites, ratings, restock_subscribers
+    global books, orders, users, favorites, ratings, restock_subscribers, expenses
 
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -240,12 +244,14 @@ def restore_backup_file(path):
     if not isinstance(data, dict) or not isinstance(data.get("books"), list):
         raise ValueError("Backup fayli noto'g'ri yoki eski formatda.")
 
+    load_expenses()
     restored = {
         "orders": data.get("orders", {}),
         "users": data.get("users", {}),
         "favorites": data.get("favorites", {}),
         "ratings": data.get("ratings", {}),
-        "restock_subscribers": data.get("restock_subscribers", {})
+        "restock_subscribers": data.get("restock_subscribers", {}),
+        "expenses": data.get("expenses", expenses)
     }
 
     # Avval vaqtinchalik fayllarga yozamiz. Hammasi muvaffaqiyatli bo'lsa almashtiramiz.
@@ -255,7 +261,8 @@ def restore_backup_file(path):
         USERS_FILE: restored["users"],
         FAVORITES_FILE: restored["favorites"],
         RATINGS_FILE: restored["ratings"],
-        RESTOCK_FILE: restored["restock_subscribers"]
+        RESTOCK_FILE: restored["restock_subscribers"],
+        EXPENSES_FILE: restored["expenses"]
     }
 
     temp_files = []
@@ -285,6 +292,7 @@ def restore_backup_file(path):
     load_favorites()
     load_ratings()
     load_restock()
+    load_expenses()
 
     # Backup tiklangandan keyin eski foydalanuvchi sessiyalari va savatchalari
     # yangi ma'lumotlar bilan aralashib ketmasligi uchun tozalanadi.
@@ -395,6 +403,7 @@ def load_books():
             "author": "Ko‘rsatilmagan",
             "description": "Ma’lumot kiritilmagan.",
             "old_price": 0,
+            "cost_price": 0,
             "photo_id": "",
             "cover": "Yumshoq",
             "recommended": False,
@@ -413,6 +422,7 @@ def load_books():
             "author": "Ko‘rsatilmagan",
             "description": "Ma’lumot kiritilmagan.",
             "old_price": 0,
+            "cost_price": 0,
             "photo_id": "",
             "cover": "Ko‘rsatilmagan",
             "recommended": False,
@@ -493,6 +503,39 @@ def load_users():
             save_users()
         elif not isinstance(users, dict):
             users = {}
+
+
+def save_expenses():
+    tmp_file = EXPENSES_FILE + ".tmp"
+    with open(tmp_file, "w", encoding="utf-8") as f:
+        json.dump(expenses, f, ensure_ascii=False, indent=2); f.flush(); os.fsync(f.fileno())
+    os.replace(tmp_file, EXPENSES_FILE)
+
+def load_expenses():
+    global expenses
+    try:
+        with open(EXPENSES_FILE, "r", encoding="utf-8") as f: loaded=json.load(f)
+        expenses = loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        expenses={}
+        if not os.path.exists(EXPENSES_FILE): save_expenses()
+
+def add_postage_expense(amount):
+    load_expenses(); key=datetime.now().date().isoformat(); items=expenses.setdefault(key, [])
+    if not isinstance(items, list): items=[]; expenses[key]=items
+    items.append({"amount":int(amount),"created_at":datetime.now().isoformat(timespec="seconds")}); save_expenses()
+
+def postage_expense_for_period(period="all"):
+    load_expenses(); now=datetime.now(); total=0
+    for date_key, items in expenses.items():
+        try: day=datetime.fromisoformat(str(date_key)).date()
+        except Exception: continue
+        include = period=="all" or (period=="today" and day==now.date()) or (period=="week" and day >= (now-timedelta(days=7)).date()) or (period=="month" and day.year==now.year and day.month==now.month)
+        if include and isinstance(items,list):
+            for item in items:
+                try: total += int(item.get("amount",0) if isinstance(item,dict) else item)
+                except Exception: pass
+    return total
 
 
 # =========================
@@ -1047,8 +1090,10 @@ def admin_menu():
             [{"text": "📚 Kitoblar ro‘yxati"}, {"text": "🔎 Kitob qidirish"}],
             [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
+            [{"text": "⚠️ Kam qolgan"}, {"text": "⚡ Tezkor qoldiq"}],
             [discount_button],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
+            [{"text": "📅 Bugungi hisobot"}, {"text": "🚚 Pochta xarajati"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
             [{"text": "🧪 Random xabarni sinash"}],
             [{"text": "💾 Backup"}, {"text": "📥 Backup tiklash"}],
@@ -1349,6 +1394,7 @@ def edit_fields_menu(book_id):
         "inline_keyboard": [
             [{"text": "✏️ Nomini o‘zgartirish", "callback_data": f"ename_{book_id}"}],
             [{"text": "💰 Narxini o‘zgartirish", "callback_data": f"eprice_{book_id}"}],
+            [{"text": "💵 Tannarxni o‘zgartirish", "callback_data": f"ecost_{book_id}"}],
             [{"text": "📦 Qoldig‘ini o‘zgartirish", "callback_data": f"estock_{book_id}"}],
             [{"text": "📂 Kategoriyani o‘zgartirish", "callback_data": f"ecat_{book_id}"}],
             [{"text": "📕 Muqovani o‘zgartirish", "callback_data": f"ecover_{book_id}"}],
@@ -1360,6 +1406,51 @@ def edit_fields_menu(book_id):
             [{"text": "⬅️ Orqaga", "callback_data": "editlist"}],
         ]
     }
+
+
+def low_stock_admin_text():
+    refresh_books(); low=sorted([b for b in books if 0<int(b.get("stock",0))<=LOW_STOCK_LIMIT],key=lambda b:int(b.get("stock",0))); empty=sorted([b for b in books if int(b.get("stock",0))<=0],key=lambda b:str(b.get("name","")).casefold())
+    lines=["⚠️ KAM QOLGAN KITOBLAR",""] + ([f"• {b['name']} — {int(b.get('stock',0))} ta" for b in low] or ["Kam qolgan kitob yo‘q."]) + ["","❌ TUGAGAN KITOBLAR",""] + ([f"• {b['name']} — 0 ta" for b in empty] or ["Tugagan kitob yo‘q."])
+    return "\n".join(lines)
+
+def low_stock_admin_keyboard():
+    refresh_books(); items=sorted([b for b in books if int(b.get("stock",0))<=LOW_STOCK_LIMIT],key=lambda b:(int(b.get("stock",0)),str(b.get("name","")).casefold()))
+    buttons=[[{"text":f"📦 {b['name']} — {int(b.get('stock',0))} ta","callback_data":f"qstock_book_{b['id']}"}] for b in items[:40]]; buttons.append([{"text":"⬅️ Admin panel","callback_data":"admin"}]); return {"inline_keyboard":buttons}
+
+def quick_stock_list_keyboard():
+    refresh_books(); items=sorted(books,key=lambda b:str(b.get("name","")).casefold()); buttons=[[{"text":f"📦 {b['name']} — {int(b.get('stock',0))} ta","callback_data":f"qstock_book_{b['id']}"}] for b in items[:80]]; buttons.append([{"text":"⬅️ Admin panel","callback_data":"admin"}]); return {"inline_keyboard":buttons}
+
+def quick_stock_adjust_keyboard(book_id):
+    return {"inline_keyboard":[[{"text":"➖5","callback_data":f"qstock_adj_{book_id}_-5"},{"text":"➖1","callback_data":f"qstock_adj_{book_id}_-1"}],[{"text":"➕1","callback_data":f"qstock_adj_{book_id}_1"},{"text":"➕5","callback_data":f"qstock_adj_{book_id}_5"}],[{"text":"✏️ Aniq son yozish","callback_data":f"qstock_set_{book_id}"}],[{"text":"⬅️ Kitoblar","callback_data":"qstock_list"}]]}
+
+def order_cost_summary(order):
+    total_cost=0; missing_qty=0; items=order.get("items")
+    if isinstance(items,list) and items:
+        for item in items:
+            qty=int(item.get("qty",0) or 0); unit_cost=item.get("unit_cost")
+            if unit_cost is None:
+                b=find_book(item.get("book_id")); unit_cost=int(b.get("cost_price",0) or 0) if b else 0
+            unit_cost=int(unit_cost or 0); total_cost += unit_cost*qty; missing_qty += qty if unit_cost<=0 else 0
+        return total_cost,missing_qty
+    for bid,qty in order.get("cart",{}).items():
+        qty=int(qty); b=find_book(bid); unit_cost=int(b.get("cost_price",0) or 0) if b else 0; total_cost += unit_cost*qty; missing_qty += qty if unit_cost<=0 else 0
+    return total_cost,missing_qty
+
+def daily_admin_report_text():
+    load_orders(); load_users(); now=datetime.now(); successful=[]
+    for o in orders.values():
+        if int(o.get("order_id",0) or 0)<STATS_RESET_ORDER_ID: continue
+        try: dt=datetime.fromisoformat(o.get("created_at",""))
+        except Exception: continue
+        if dt.date()==now.date() and o.get("status") in ("paid","shipped","delivered"): successful.append(o)
+    revenue=sum(int(o.get("grand_total",0) or 0) for o in successful); books_revenue=sum(int(o.get("total",0) or 0) for o in successful); delivery_revenue=sum(int(o.get("delivery_fee",DELIVERY_FEE) or 0) for o in successful); sold_qty=sum(sum(int(q) for q in o.get("cart",{}).values()) for o in successful)
+    cost_of_goods=0; missing_cost_qty=0
+    for o in successful:
+        c,m=order_cost_summary(o); cost_of_goods+=c; missing_cost_qty+=m
+    postage=postage_expense_for_period("today"); net_profit=revenue-cost_of_goods-postage
+    lines=["📅 BUGUNGI HISOBOT","",f"📦 Buyurtmalar: {len(successful)} ta",f"📚 Sotilgan kitoblar: {sold_qty} dona","",f"💰 Jami tushum: ₩{revenue:,}",f"📖 Kitob savdosi: ₩{books_revenue:,}",f"🚚 Mijozlardan yetkazish puli: ₩{delivery_revenue:,}","",f"💵 Sotilgan kitoblar tannarxi: ₩{cost_of_goods:,}",f"📮 Pochtaga sarflandi: ₩{postage:,}","━━━━━━━━━━━━━━",f"✅ BUGUNGI SOF FOYDA: ₩{net_profit:,}","━━━━━━━━━━━━━━"]
+    if missing_cost_qty: lines.append(f"⚠️ {missing_cost_qty} dona sotilgan kitobda tannarx 0. Sof foyda aniq bo‘lishi uchun tannarxini kiriting.")
+    return "\n".join(lines)
 
 
 # =========================
@@ -1728,6 +1819,7 @@ def admin_report_keyboard():
 
 def admin_report_text(period="all"):
     load_users()
+    load_expenses()
     now = datetime.now()
 
     def included(o):
@@ -1758,6 +1850,12 @@ def admin_report_text(period="all"):
     revenue = sum(int(o.get("grand_total", 0)) for o in successful)
     books_revenue = sum(int(o.get("total", 0)) for o in successful)
     delivery_revenue = sum(int(o.get("delivery_fee", DELIVERY_FEE)) for o in successful)
+    cost_of_goods = 0
+    missing_cost_qty = 0
+    for o in successful:
+        order_cost, missing_qty = order_cost_summary(o); cost_of_goods += order_cost; missing_cost_qty += missing_qty
+    postage_expense = postage_expense_for_period(period)
+    net_profit = revenue - cost_of_goods - postage_expense
     avg_order = revenue / len(successful) if successful else 0
     free_delivery_orders = [
         o for o in successful
@@ -1822,6 +1920,9 @@ def admin_report_text(period="all"):
         f"💰 Jami tushum: ₩{revenue:,}",
         f"📚 Kitoblar savdosi: ₩{books_revenue:,}",
         f"🚚 Yetkazib berish: ₩{delivery_revenue:,}",
+        f"💵 Sotilgan kitoblar tannarxi: ₩{cost_of_goods:,}",
+        f"📮 Pochtaga sarflandi: ₩{postage_expense:,}",
+        f"✅ Sof foyda: ₩{net_profit:,}",
         f"📈 O‘rtacha buyurtma: ₩{avg_order:,.0f}",
         f"📚 Sotilgan kitoblar: {sum(sold.values())} dona",
         f"👤 Yangi mijozlar: {new_customers} ta",
@@ -1831,6 +1932,9 @@ def admin_report_text(period="all"):
         f"🎁 Bepul yetkazishga ketgan: ₩{free_delivery_cost:,} ({len(free_delivery_orders)} ta buyurtma)", "",
         "🏆 TOP 10 KITOB:"
     ]
+
+    if missing_cost_qty:
+        lines.insert(lines.index("🏆 TOP 10 KITOB:"), f"⚠️ Tannarxi kiritilmagan sotuv: {missing_cost_qty} dona")
 
     if top:
         for i, (bid, qty) in enumerate(top, 1):
@@ -1931,7 +2035,8 @@ def finalize_order(chat_id):
                     "book_id": str(book_id),
                     "name": str(book.get("name", "Kitob")),
                     "qty": int(qty),
-                    "unit_price": int(effective_price(book))
+                    "unit_price": int(effective_price(book)),
+                    "unit_cost": int(book.get("cost_price", 0) or 0)
                 })
 
     total = sum(int(item["unit_price"]) * int(item["qty"]) for item in payment_items)
@@ -2209,7 +2314,8 @@ def handle_message(message):
                     "book_id": str(book_id),
                     "name": str(book.get("name", "Kitob")),
                     "qty": int(qty),
-                    "unit_price": int(effective_price(book))
+                    "unit_price": int(effective_price(book)),
+                    "unit_cost": int(book.get("cost_price", 0) or 0)
                 })
 
         if not payment_items:
@@ -2335,6 +2441,12 @@ def handle_message(message):
             send(chat_id, admin_report_text(), admin_report_keyboard())
             return
 
+        if text == "📅 Bugungi hisobot":
+            states.pop(chat_id, None); send(chat_id, daily_admin_report_text(), admin_menu()); return
+
+        if text == "🚚 Pochta xarajati":
+            states[chat_id] = {"action":"postage_expense"}; send(chat_id,"📮 Bugun pochtaga sarflagan summani yozing (₩).\nMasalan: 12000\n\nBir kunda bir necha marta kiritsangiz, hammasi qo‘shib hisoblanadi."); return
+
         if text == "📦 Buyurtmalar":
             states.pop(chat_id, None)
             send(chat_id, admin_orders_text("all"), admin_orders_keyboard("all"))
@@ -2413,6 +2525,12 @@ def handle_message(message):
             send(chat_id, "🔎 Qidiriladigan kitob nomini, muallifini yoki kategoriyasini yozing:\n\n❌ Bekor qilish", {"keyboard":[[{"text":"❌ Bekor qilish"}]],"resize_keyboard":True})
             return
 
+        if text == "⚠️ Kam qolgan":
+            states.pop(chat_id,None); send(chat_id,low_stock_admin_text(),low_stock_admin_keyboard()); return
+
+        if text == "⚡ Tezkor qoldiq":
+            states.pop(chat_id,None); send(chat_id,"⚡ Qoldig‘ini tez o‘zgartirish uchun kitobni tanlang:",quick_stock_list_keyboard()); return
+
         if text == "📦 Ombor":
             lines = ["📦 Ombor qoldig‘i:"]
             total_stock = 0
@@ -2490,6 +2608,24 @@ def handle_message(message):
 
         if state:
             action = state.get("action")
+
+            if action == "postage_expense":
+                try:
+                    amount=int(text.replace(",","").replace(" ",""))
+                    if amount<=0: raise ValueError
+                except ValueError: send(chat_id,"❌ Summa musbat son bo‘lsin. Masalan: 12000"); return
+                add_postage_expense(amount); states.pop(chat_id,None); send(chat_id,f"✅ Bugungi pochta xarajatiga ₩{amount:,} qo‘shildi.\n\n{daily_admin_report_text()}",admin_menu()); return
+
+            if action == "quick_stock_set":
+                try:
+                    value=int(text.replace(",","").replace(" ",""))
+                    if value<0: raise ValueError
+                except ValueError: send(chat_id,"❌ Qoldiq 0 yoki undan katta son bo‘lsin."); return
+                refresh_books(); book=next((b for b in books if int(b.get("id",-1))==int(state.get("book_id",-1))),None)
+                if not book: states.pop(chat_id,None); send(chat_id,"❌ Kitob topilmadi.",admin_menu()); return
+                old_stock=int(book.get("stock",0)); book["stock"]=value; save_books()
+                if old_stock<=0<value: notify_restock(book)
+                states.pop(chat_id,None); send(chat_id,f"✅ {book['name']} — {value} ta",quick_stock_adjust_keyboard(book["id"])); return
 
             if action == "global_discount":
                 try:
@@ -2675,13 +2811,16 @@ def handle_message(message):
                     return
 
                 state["price"] = price
-                state["action"] = "add_stock"
-
-                send(
-                    chat_id,
-                    "📦 Endi qoldiq sonini yozing.\nMasalan: 10"
-                )
+                state["action"] = "add_cost_price"
+                send(chat_id,"💵 Endi kitob tannarxini yozing (₩).\nMasalan: 10000\nTannarx hali ma’lum bo‘lmasa: 0")
                 return
+
+            if action == "add_cost_price":
+                try:
+                    cost_price=int(text.replace(",","").replace(" ",""))
+                    if cost_price<0: raise ValueError
+                except ValueError: send(chat_id,"❌ Tannarx 0 yoki undan katta son bo‘lsin."); return
+                state["cost_price"]=cost_price; state["action"]="add_stock"; send(chat_id,"📦 Endi qoldiq sonini yozing.\nMasalan: 10"); return
 
             if action == "add_stock":
                 try:
@@ -2756,7 +2895,7 @@ def handle_message(message):
                     send(chat_id, "📸 Iltimos, kitob rasmini yuboring yoki — deb yozing.")
                     return
                 new_id = max([int(b["id"]) for b in books], default=0) + 1
-                new_book = {"id": new_id, "name": state["name"], "price": state["price"], "stock": state["stock"],
+                new_book = {"id": new_id, "name": state["name"], "price": state["price"], "cost_price": state.get("cost_price", 0), "stock": state["stock"],
                             "category": state.get("category", "Boshqalar"), "cover": state.get("cover", "Ko‘rsatilmagan"),
                             "author": state.get("author", "Ko‘rsatilmagan"),
                             "description": state.get("description", "Ma’lumot kiritilmagan."), "old_price": state.get("old_price", 0),
@@ -2777,7 +2916,7 @@ def handle_message(message):
                 )
                 return
 
-            if action in ("change_old_price", "change_category", "change_cover", "change_author", "change_description", "change_photo"):
+            if action in ("change_old_price", "change_cost_price", "change_category", "change_cover", "change_author", "change_description", "change_photo"):
                 book = find_book(state.get("book_id"))
                 if not book:
                     states.pop(chat_id, None)
@@ -2800,6 +2939,12 @@ def handle_message(message):
                         send(chat_id, "❌ Eski narx 0 yoki hozirgi narxdan katta bo‘lsin.")
                         return
                     book["old_price"] = value
+                elif action == "change_cost_price":
+                    try:
+                        value=int(text.replace(",","").replace(" ",""))
+                        if value<0: raise ValueError
+                    except ValueError: send(chat_id,"❌ Tannarx 0 yoki undan katta son bo‘lsin."); return
+                    book["cost_price"]=value
                 elif action == "change_category":
                     book["category"] = normalize_category(text)
                 elif action == "change_cover":
@@ -3614,6 +3759,33 @@ def handle_callback(callback):
 
         return
 
+    if data == "qstock_list":
+        if not is_admin(chat_id): return
+        send(chat_id,"⚡ Qoldig‘ini tez o‘zgartirish uchun kitobni tanlang:",quick_stock_list_keyboard()); return
+    if data.startswith("qstock_book_"):
+        if not is_admin(chat_id): return
+        try: book_id=int(data.rsplit("_",1)[1])
+        except Exception: return
+        book=find_book(book_id)
+        if not book: send(chat_id,"❌ Kitob topilmadi."); return
+        send(chat_id,f"⚡ {book['name']}\n📦 Hozir: {int(book.get('stock',0))} ta",quick_stock_adjust_keyboard(book_id)); return
+    if data.startswith("qstock_adj_"):
+        if not is_admin(chat_id): return
+        try: parts=data.split("_"); book_id=int(parts[2]); delta=int(parts[3])
+        except Exception: return
+        refresh_books(); book=next((b for b in books if int(b.get("id",-1))==book_id),None)
+        if not book: send(chat_id,"❌ Kitob topilmadi."); return
+        old_stock=int(book.get("stock",0)); new_stock=max(0,old_stock+delta); book["stock"]=new_stock; save_books()
+        if old_stock<=0<new_stock: notify_restock(book)
+        send(chat_id,f"✅ {book['name']} — {new_stock} ta",quick_stock_adjust_keyboard(book_id)); return
+    if data.startswith("qstock_set_"):
+        if not is_admin(chat_id): return
+        try: book_id=int(data.rsplit("_",1)[1])
+        except Exception: return
+        book=find_book(book_id)
+        if not book: return
+        states[chat_id]={"action":"quick_stock_set","book_id":book_id}; send(chat_id,f"✏️ {book['name']} uchun aniq qoldiq sonini yozing.\nHozir: {int(book.get('stock',0))} ta"); return
+
     if data.startswith("report_"):
         if not is_admin(chat_id): return
         period = data.split("_",1)[1]
@@ -3737,6 +3909,10 @@ def handle_callback(callback):
             "💰 Yangi narxni yozing (₩).\nMasalan: 35000"
         )
         return
+
+    if data.startswith("ecost_"):
+        if not is_admin(chat_id): return
+        book_id=int(data.split("_",1)[1]); states[chat_id]={"action":"change_cost_price","book_id":book_id}; book=find_book(book_id); current=int(book.get("cost_price",0) or 0) if book else 0; send(chat_id,f"💵 Yangi tannarxni yozing (₩).\nHozirgi: ₩{current:,}\nTannarx ma’lum bo‘lmasa: 0"); return
 
     # =========================
     # STOCK
