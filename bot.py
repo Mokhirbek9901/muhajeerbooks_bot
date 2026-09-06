@@ -1093,7 +1093,7 @@ def admin_menu():
             [{"text": "⚠️ Kam qolgan"}, {"text": "⚡ Tezkor qoldiq"}],
             [discount_button],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
-            [{"text": "📅 Bugungi hisobot"}, {"text": "🚚 Pochta xarajati"}],
+            [{"text": "📅 Bugungi hisobot"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
             [{"text": "🧪 Random xabarni sinash"}],
             [{"text": "💾 Backup"}, {"text": "📥 Backup tiklash"}],
@@ -1465,7 +1465,7 @@ def daily_admin_report_text():
     cost_of_goods=0; missing_cost_qty=0
     for o in successful:
         c,m=order_cost_summary(o); cost_of_goods+=c; missing_cost_qty+=m
-    postage=postage_expense_for_period("today"); net_profit=revenue-cost_of_goods-postage
+    postage=len(successful)*int(DELIVERY_FEE); net_profit=revenue-cost_of_goods-postage
     lines=["📅 BUGUNGI HISOBOT","",f"📦 Buyurtmalar: {len(successful)} ta",f"📚 Sotilgan kitoblar: {sold_qty} dona","",f"💰 Jami tushum: ₩{revenue:,}",f"📖 Kitob savdosi: ₩{books_revenue:,}",f"🚚 Mijozlardan yetkazish puli: ₩{delivery_revenue:,}","",f"💵 Sotilgan kitoblar tannarxi: ₩{cost_of_goods:,}",f"📮 Pochtaga sarflandi: ₩{postage:,}","━━━━━━━━━━━━━━",f"✅ BUGUNGI SOF FOYDA: ₩{net_profit:,}","━━━━━━━━━━━━━━"]
     if missing_cost_qty: lines.append(f"⚠️ {missing_cost_qty} dona sotilgan kitobda tannarx 0. Sof foyda aniq bo‘lishi uchun tannarxini kiriting.")
     return "\n".join(lines)
@@ -1837,7 +1837,6 @@ def admin_report_keyboard():
 
 def admin_report_text(period="all"):
     load_users()
-    load_expenses()
     now = datetime.now()
 
     def included(o):
@@ -1872,7 +1871,9 @@ def admin_report_text(period="all"):
     missing_cost_qty = 0
     for o in successful:
         order_cost, missing_qty = order_cost_summary(o); cost_of_goods += order_cost; missing_cost_qty += missing_qty
-    postage_expense = postage_expense_for_period(period)
+    # Har bir yakunlangan buyurtma uchun real pochta xarajati ₩4,000 deb hisoblanadi.
+    # Mijoz yetkazish pulini to‘lasa ham, 4+ kitobda bepul bo‘lsa ham pochta xarajati mavjud.
+    postage_expense = len(successful) * int(DELIVERY_FEE)
     net_profit = revenue - cost_of_goods - postage_expense
     avg_order = revenue / len(successful) if successful else 0
     free_delivery_orders = [
@@ -2628,13 +2629,6 @@ def handle_message(message):
 
         if state:
             action = state.get("action")
-
-            if action == "postage_expense":
-                try:
-                    amount=int(text.replace(",","").replace(" ",""))
-                    if amount<=0: raise ValueError
-                except ValueError: send(chat_id,"❌ Summa musbat son bo‘lsin. Masalan: 12000"); return
-                add_postage_expense(amount); states.pop(chat_id,None); send(chat_id,f"✅ Bugungi pochta xarajatiga ₩{amount:,} qo‘shildi.\n\n{daily_admin_report_text()}",admin_menu()); return
 
             if action == "quick_stock_set":
                 try:
