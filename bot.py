@@ -800,21 +800,44 @@ def categories_keyboard():
 
 def book_detail_text(book):
     stock = int(book.get("stock", 0))
-    category = str(book.get("category", "Boshqalar") or "Boshqalar")
-    author = str(book.get("author", "Ko‘rsatilmagan") or "Ko‘rsatilmagan")
-    cover = str(book.get("cover", "Ko‘rsatilmagan") or "Ko‘rsatilmagan")
-    desc = str(book.get("description", "Ma’lumot kiritilmagan.") or "Ma’lumot kiritilmagan.")
+    category = normalize_category(book.get("category", "Boshqalar"))
+    author = str(book.get("author", "") or "").strip()
+    cover = str(book.get("cover", "") or "").strip()
+    desc = str(book.get("description", "") or "").strip()
     avg, count = book_rating(book["id"])
-    rating_line = f"⭐ Reyting: {avg:.1f}/5 ({count} ta baho)" if count else "⭐ Hali baholanmagan"
-    badge = "🔥 TAVSIYA ETILGAN\n" if book.get("recommended") else ""
-    return (f"{badge}📖 {book['name']}\n\n"
-            f"{price_text(book)}\n"
-            f"📦 Omborda: {stock} dona\n"
-            f"📂 Kategoriya: {category}\n"
-            f"✍️ Muallif: {author}\n"
-            f"📕 Muqova: {cover}\n"
-            f"{rating_line}\n\n"
-            f"📄 {desc}")
+
+    lines = [
+        "📚 MUHAJEER BOOKS",
+        "━━━━━━━━━━━━━━",
+        f"📖 {book['name']}",
+    ]
+
+    if book.get("recommended"):
+        lines.append("🔥 Muhajeer Books tavsiya qiladi")
+
+    lines.extend([
+        "",
+        price_text(book),
+        f"📦 Holati: {'Sotuvda — ' + str(stock) + ' ta' if stock > 0 else 'Hozircha mavjud emas'}",
+    ])
+
+    if category and category != "Boshqalar":
+        lines.append(f"📂 Kategoriya: {category}")
+    if author and author != "Ko‘rsatilmagan":
+        lines.append(f"✍️ Muallif: {author}")
+    if cover and cover != "Ko‘rsatilmagan":
+        lines.append(f"📕 Muqova: {cover}")
+
+    lines.append(
+        f"⭐ Reyting: {avg:.1f}/5 · {count} ta baho"
+        if count else "⭐ Hali baholanmagan"
+    )
+
+    if desc and desc != "Ma’lumot kiritilmagan.":
+        lines.extend(["", "📝 KITOB HAQIDA", desc])
+
+    lines.extend(["", "━━━━━━━━━━━━━━", "Kerakli amalni quyidan tanlang 👇"])
+    return "\n".join(lines)
 
 
 def book_detail_keyboard(book, chat_id):
@@ -1038,11 +1061,43 @@ def admin_order_keyboard(order_id):
     }
 
 
+def catalog_intro_text(page=0):
+    available = sum(
+        1 for b in books
+        if int(b.get("stock", 0)) > 0 and effective_price(b) > 0
+    )
+    return (
+        "📚 MUHAJEER BOOKS KATALOGI\n"
+        "━━━━━━━━━━━━━━\n"
+        f"✅ Sotuvda: {available} xil kitob\n"
+        f"📖 Jami katalogda: {len(books)} xil\n\n"
+        "Kitobni tanlang — narxi, muqovasi va batafsil ma’lumotini ko‘rasiz 👇"
+    )
+
+
+def catalog_book_label(book):
+    stock = int(book.get("stock", 0))
+    price = effective_price(book)
+    if stock > 0 and price > 0:
+        flame = "🔥 " if book.get("recommended") else ""
+        return f"{flame}📗 {book['name']} · ₩{price:,}", f"book_{book['id']}"
+    return f"▫️ {book['name']} · Mavjud emas", f"none_{book['id']}"
+
+
 def books_menu(page=0):
     refresh_books()
 
-    per_page = 8
-    total_pages = max(1, (len(books) + per_page - 1) // per_page)
+    # Sotuvdagi kitoblar tepada, mavjud bo‘lmaganlari esa pastda ko‘rinadi.
+    ordered_books = sorted(
+        books,
+        key=lambda b: (
+            not (int(b.get("stock", 0)) > 0 and effective_price(b) > 0),
+            str(b.get("name", "")).casefold()
+        )
+    )
+
+    per_page = 7
+    total_pages = max(1, (len(ordered_books) + per_page - 1) // per_page)
 
     try:
         page = int(page)
@@ -1051,36 +1106,33 @@ def books_menu(page=0):
 
     page = max(0, min(page, total_pages - 1))
     start = page * per_page
-    page_books = books[start:start + per_page]
+    page_books = ordered_books[start:start + per_page]
 
     buttons = []
-
     for book in page_books:
-        stock = int(book.get("stock", 0))
-        price = effective_price(book)
-        icon = "📖" if stock > 0 and price > 0 else "❌"
-        label = f"{icon} {book['name']} — ₩{price:,}" if price else f"{icon} {book['name']}"
-        buttons.append([{
-            "text": label,
-            "callback_data": f"book_{book['id']}" if icon == "📖" else f"none_{book['id']}"
-        }])
+        label, callback = catalog_book_label(book)
+        buttons.append([{"text": label, "callback_data": callback}])
 
     if total_pages > 1:
         nav = []
         if page > 0:
-            nav.append({"text": "◀️", "callback_data": f"books_page_{page - 1}"})
-        nav.append({"text": f"{page + 1}/{total_pages}", "callback_data": "cart_noop"})
+            nav.append({"text": "⬅️ Oldingi", "callback_data": f"books_page_{page - 1}"})
+        nav.append({"text": f"📄 {page + 1} / {total_pages}", "callback_data": "cart_noop"})
         if page < total_pages - 1:
-            nav.append({"text": "▶️", "callback_data": f"books_page_{page + 1}"})
+            nav.append({"text": "Keyingi ➡️", "callback_data": f"books_page_{page + 1}"})
         buttons.append(nav)
 
-    buttons.append([{"text": "📂 Kategoriyalar", "callback_data": "categories"}])
-    buttons.append([{"text": "❤️ Sevimlilar", "callback_data": "favorites"}])
+    buttons.append([
+        {"text": "📂 Kategoriyalar", "callback_data": "categories"},
+        {"text": "❤️ Sevimlilar", "callback_data": "favorites"}
+    ])
     buttons.append([{"text": "🏠 Bosh menyu", "callback_data": "home"}])
 
     return {"inline_keyboard": buttons}
 
 
+# =========================
+# SAVATCHA
 # =========================
 # SAVATCHA
 # =========================
@@ -2649,7 +2701,7 @@ def handle_message(message):
     if text == "📚 Kitoblar":
         send(
             chat_id,
-            "📚 Mavjud kitoblar:",
+            catalog_intro_text(),
             books_menu()
         )
         return
@@ -2921,7 +2973,7 @@ def handle_callback(callback):
     if data == "books":
         send(
             chat_id,
-            "📚 Mavjud kitoblar:",
+            catalog_intro_text(),
             books_menu()
         )
         return
@@ -2934,7 +2986,7 @@ def handle_callback(callback):
 
         send(
             chat_id,
-            "📚 Mavjud kitoblar:",
+            catalog_intro_text(page),
             books_menu(page)
         )
         return
