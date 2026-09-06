@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import shutil
 import urllib.request
 import urllib.parse
 import random
@@ -24,6 +25,82 @@ RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
 RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 LOW_STOCK_LIMIT = 2
 STATS_RESET_ORDER_ID = 1788693321000  # 2026-09-06 16:15:21 Asia/Tashkent
+
+# =========================
+# /data VOLUME MIGRATSIYASI
+# =========================
+
+MIGRATION_SOURCE_DIR = "."
+MIGRATION_FILENAMES = [
+    "books.json",
+    "orders.json",
+    "users.json",
+    "favorites.json",
+    "ratings.json",
+    "restock.json",
+]
+
+
+def migrate_data_to_volume():
+    """
+    Railwayda /data volume ulanganda, ilgari /app (ephemeral) papkasida
+    saqlangan JSON fayllarni bir martalik tarzda /data papkasiga ko'chiradi.
+
+    Qoidalar:
+    - Faqat /data haqiqatan mavjud va yozish mumkin bo'lgan katalog bo'lsa ishlaydi.
+    - /data dagi mavjud fayllar HECH QACHON qayta yozilmaydi (ustidan yozish yo'q).
+    - /app dagi manba fayllar o'chirilmaydi, ular ephemeral saqlash tomonidan
+      redeploy vaqtida tabiiy ravishda tozalanadi.
+    - Xatolik yuz bersa, funksiya jim tarzda davom etadi (bot ishga tushishiga
+      xalaqit bermaydi).
+    """
+    try:
+        if DATA_DIR != "/data" or not os.path.isdir("/data"):
+            # Volume ulanmagan (hali ham ephemeral "." ishlatilmoqda) —
+            # migratsiya kerak emas.
+            return
+
+        if not os.access("/data", os.W_OK):
+            print("[Migratsiya] /data yozish uchun mavjud emas, o'tkazib yuborildi.")
+            return
+
+        copied = []
+        skipped_existing = []
+        skipped_missing = []
+        errors = []
+
+        for filename in MIGRATION_FILENAMES:
+            source_path = os.path.join(MIGRATION_SOURCE_DIR, filename)
+            dest_path = os.path.join(DATA_DIR, filename)
+
+            try:
+                if os.path.exists(dest_path):
+                    # /data da fayl allaqachon bor — ustidan yozmaymiz.
+                    skipped_existing.append(filename)
+                    continue
+
+                if not os.path.isfile(source_path):
+                    # /app da manba fayl topilmadi — o'tkazib yuboriladi.
+                    skipped_missing.append(filename)
+                    continue
+
+                shutil.copy2(source_path, dest_path)
+                copied.append(filename)
+            except Exception as file_error:
+                errors.append(f"{filename} ({file_error})")
+
+        print(
+            "[Migratsiya] /data volume tekshiruvi yakunlandi: "
+            f"manba='{os.path.abspath(MIGRATION_SOURCE_DIR)}', "
+            f"maqsad='{os.path.abspath(DATA_DIR)}', "
+            f"ko'chirildi={len(copied)} {copied}, "
+            f"mavjud edi={len(skipped_existing)} {skipped_existing}, "
+            f"manbada yo'q={len(skipped_missing)} {skipped_missing}, "
+            f"xatoliklar={len(errors)} {errors}"
+        )
+    except Exception as e:
+        # Migratsiya hech qachon botning ishga tushishini to'xtatmasligi kerak.
+        print("[Migratsiya] Kutilmagan xato, o'tkazib yuborildi:", e)
 
 # =========================
 # FAOL BO'LMAGAN MIJOZLAR
@@ -4159,6 +4236,8 @@ def handle_callback(callback):
 def main():
     if not TOKEN:
         raise Exception("BOT_TOKEN sozlanmagan!")
+
+    migrate_data_to_volume()
 
     load_books()
     load_orders()
