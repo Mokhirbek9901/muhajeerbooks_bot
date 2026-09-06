@@ -378,6 +378,29 @@ def load_books():
         books = DEFAULT_BOOKS[:]
 
     changed = False
+
+    # GitHub orqali qo‘shilgan kitob: mavjud bo‘lmasa bir marta omborga qo‘shiladi.
+    if not any(str(b.get("name", "")).strip().casefold() == "assasin" for b in books):
+        next_id = max(
+            [int(b.get("id", 0)) for b in books if str(b.get("id", "")).isdigit()],
+            default=0
+        ) + 1
+        books.append({
+            "id": next_id,
+            "name": "Assasin",
+            "price": 17000,
+            "stock": 3,
+            "category": "Boshqalar",
+            "author": "Ko‘rsatilmagan",
+            "description": "Ma’lumot kiritilmagan.",
+            "old_price": 0,
+            "photo_id": "",
+            "cover": "Yumshoq",
+            "recommended": False,
+            "created_at": datetime.now().isoformat()
+        })
+        changed = True
+
     for b in books:
         category = normalize_category(b.get("category", "Boshqalar"))
         if b.get("category") != category:
