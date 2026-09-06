@@ -1528,13 +1528,54 @@ def register_user(chat_id, user):
     save_users()
 
 
-def admin_users_text():
-    # Eng yangi users.json ni o'qib, botdan foydalangan foydalanuvchilar sonini ko'rsatadi.
+def admin_users_texts():
+    # Telegram bitta xabarda 4096 belgidan oshirmaydi, shuning uchun ro‘yxat
+    # katta bo‘lsa uni bir nechta xabarga bo‘lib yuboramiz.
     load_users()
-    return (
-        "👥 FOYDALANUVCHILAR\n\n"
-        f"Jami foydalanuvchilar: {len(users)} ta"
+    people = sorted(
+        users.items(),
+        key=lambda item: (
+            str(item[1].get("first_name", "")).lower(),
+            str(item[1].get("last_name", "")).lower(),
+            str(item[0])
+        )
     )
+
+    header = (
+        "👥 BOT FOYDALANUVCHILARI\n\n"
+        f"Jami foydalanuvchilar: {len(people)} ta\n"
+    )
+    if not people:
+        return [header + "\nHozircha foydalanuvchi yo‘q."]
+
+    chunks = []
+    current = header
+    for number, (user_id, profile) in enumerate(people, 1):
+        full_name = " ".join(
+            part for part in [
+                str(profile.get("first_name", "") or "").strip(),
+                str(profile.get("last_name", "") or "").strip()
+            ]
+            if part
+        ) or "Noma’lum"
+        username = str(profile.get("username", "") or "").strip().lstrip("@")
+        username_text = f"@{username}" if username else "username yo‘q"
+        telegram_id = profile.get("chat_id", user_id)
+        entry = (
+            f"\n{number}. 👤 {full_name}\n"
+            f"   🔗 {username_text}\n"
+            f"   🆔 {telegram_id}\n"
+        )
+
+        if len(current) + len(entry) > 3800:
+            chunks.append(current)
+            current = "👥 DAVOMI\n" + entry
+        else:
+            current += entry
+
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def search_books(query):
@@ -2209,7 +2250,10 @@ def handle_message(message):
 
         if text == "👥 Foydalanuvchilar":
             states.pop(chat_id, None)
-            send(chat_id, admin_users_text(), admin_menu())
+            user_messages = admin_users_texts()
+            for index, user_message in enumerate(user_messages):
+                keyboard = admin_menu() if index == len(user_messages) - 1 else None
+                send(chat_id, user_message, keyboard)
             return
 
         if text == "🧪 Random xabarni sinash":
