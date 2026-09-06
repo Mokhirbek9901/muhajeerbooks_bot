@@ -1,0 +1,26 @@
+name: Saved address choice
+
+on:
+  push:
+    paths:
+      - '.github/saved-address-choice.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: python .github/saved-address-choice.py
+      - run: python -m py_compile bot.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Ask before using saved customer address"
+          git push origin main
