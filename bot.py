@@ -1818,7 +1818,6 @@ def admin_report_text(period="all"):
         f"🟡 To‘lov kutilmoqda: {pending} ta",
         f"💳 To‘langan: {paid} ta",
         f"🚚 Jo‘natilgan: {shipped} ta",
-        f"✅ Yetkazilgan: {delivered} ta",
         f"❌ Bekor qilingan: {cancelled} ta", "",
         f"💰 Jami tushum: ₩{revenue:,}",
         f"📚 Kitoblar savdosi: ₩{books_revenue:,}",
