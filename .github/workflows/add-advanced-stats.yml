@@ -1,0 +1,126 @@
+name: Add advanced statistics
+
+on:
+  push:
+    paths:
+      - '.github/add-advanced-stats.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch advanced statistics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('bot.py')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''    avg_order = revenue / len(successful) if successful else 0
+
+    sold = {}
+    customer_totals = {}
+    for o in successful:
+        cid = str(o.get("chat_id"))
+        customer_totals[cid] = customer_totals.get(cid, 0) + int(o.get("grand_total", 0))
+        for bid, qty in o.get("cart", {}).items():
+            sold[int(bid)] = sold.get(int(bid), 0) + int(qty)
+
+    top = sorted(sold.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_customers = sorted(customer_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+'''
+
+          new = '''    avg_order = revenue / len(successful) if successful else 0
+    free_delivery_orders = [
+        o for o in successful
+        if int(o.get("delivery_fee", DELIVERY_FEE)) == 0
+    ]
+    free_delivery_cost = len(free_delivery_orders) * int(DELIVERY_FEE)
+
+    sold = {}
+    category_sales = {}
+    customer_totals = {}
+    customer_order_counts = {}
+    for o in successful:
+        cid = str(o.get("chat_id"))
+        customer_totals[cid] = customer_totals.get(cid, 0) + int(o.get("grand_total", 0))
+        customer_order_counts[cid] = customer_order_counts.get(cid, 0) + 1
+        for bid, qty in o.get("cart", {}).items():
+            qty = int(qty)
+            sold[int(bid)] = sold.get(int(bid), 0) + qty
+            b = find_book(bid)
+            category = normalize_category(b.get("category")) if b else "Boshqalar"
+            category_sales[category] = category_sales.get(category, 0) + qty
+
+    top = sorted(sold.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_customers = sorted(customer_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    if category_sales:
+        top_category_name, top_category_qty = max(category_sales.items(), key=lambda x: x[1])
+    else:
+        top_category_name, top_category_qty = "Hali sotuv yo‘q", 0
+
+    repeat_customers = sum(1 for count in customer_order_counts.values() if count >= 2)
+    unique_customers = len(customer_order_counts)
+    repeat_pct = (repeat_customers / unique_customers * 100) if unique_customers else 0
+
+    all_successful_after_reset = [
+        o for o in orders.values()
+        if int(o.get("order_id", 0) or 0) >= STATS_RESET_ORDER_ID
+        and o.get("status") in paid_statuses
+    ]
+    first_order_by_customer = {}
+    for o in all_successful_after_reset:
+        cid = str(o.get("chat_id"))
+        oid = int(o.get("order_id", 0) or 0)
+        if cid not in first_order_by_customer or oid < first_order_by_customer[cid]:
+            first_order_by_customer[cid] = oid
+
+    selected_success_ids = {int(o.get("order_id", 0) or 0) for o in successful}
+    new_customers = sum(
+        1 for oid in first_order_by_customer.values()
+        if oid in selected_success_ids
+    )
+'''
+
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected first statistics block once, found {text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old2 = '''        f"📈 O‘rtacha buyurtma: ₩{avg_order:,.0f}",
+        f"📚 Sotilgan kitoblar: {sum(sold.values())} dona", "",
+        "🏆 TOP 10 KITOB:"
+'''
+          new2 = '''        f"📈 O‘rtacha buyurtma: ₩{avg_order:,.0f}",
+        f"📚 Sotilgan kitoblar: {sum(sold.values())} dona",
+        f"👤 Yangi mijozlar: {new_customers} ta",
+        f"🔁 Qayta xarid qilganlar: {repeat_customers} ta ({repeat_pct:.1f}%)",
+        (f"🏷 Eng ko‘p sotilgan kategoriya: {top_category_name} — {top_category_qty} dona"
+         if category_sales else "🏷 Eng ko‘p sotilgan kategoriya: hali sotuv yo‘q"),
+        f"🎁 Bepul yetkazishga ketgan: ₩{free_delivery_cost:,} ({len(free_delivery_orders)} ta buyurtma)", "",
+        "🏆 TOP 10 KITOB:"
+'''
+
+          if text.count(old2) != 1:
+              raise SystemExit(f'Expected report lines block once, found {text.count(old2)}')
+          text = text.replace(old2, new2, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Commit bot.py
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Add advanced admin sales statistics"
+          git push origin main
