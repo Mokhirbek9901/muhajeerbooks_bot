@@ -1,0 +1,174 @@
+name: Fix order flow
+
+on:
+  push:
+    paths:
+      - .github/workflows/fix-order-flow.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply targeted fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("bot.py")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  'send(chat_id, "💳 Avval to‘lovni amalga oshiring va «💳 To‘lov qildim» tugmasini bosing.",\n             order_edit_keyboard(state))',
+                  'send(chat_id, "💳 Avval to‘lovni amalga oshiring va «📸 To‘lov chekini yuborish» tugmasini bosing.",\n             order_edit_keyboard(state))'
+              ),
+              (
+                  '+ "💳 Mijoz «To‘lov qildim» deb tasdiqladi."',
+                  '+ "💳 Mijoz to‘lov chekini yubordi."'
+              ),
+              (
+                  '''    if text == "❌ Bekor qilish":
+        states.pop(chat_id, None)
+
+        send(
+            chat_id,
+            "Bekor qilindi.",
+            main_menu(chat_id)
+        )
+        return''',
+                  '''    if text == "❌ Bekor qilish":
+        current_state = states.get(chat_id, {})
+        if current_state.get("payment_declared", False):
+            send(
+                chat_id,
+                "📸 To‘lov cheki yuborilgan. Endi ma’lumotlarni tekshirib, buyurtmani tasdiqlang.",
+                order_edit_keyboard(current_state)
+            )
+            return
+
+        states.pop(chat_id, None)
+
+        send(
+            chat_id,
+            "Bekor qilindi.",
+            main_menu(chat_id)
+        )
+        return'''
+              ),
+              (
+                  '''        send(
+            chat_id,
+            "📍 Yetkazib berish manzilingizni yozing:"
+        )''',
+                  '''        send(
+            chat_id,
+            "📍 Manzil va xona raqamini to‘liq yozing.\\n\\n"
+            "Masalan: 경상북도 경산시 계양로 37길 7-3, 808호"
+        )'''
+              ),
+              (
+                  '''            extra = (
+                "\\n\\n💳 To‘lovingiz belgilandi.\\n"
+                "⚠️ Ma’lumotlarni tekshirib, «✅ Tasdiqlash» tugmasini bosing."
+            )''',
+                  '''            extra = (
+                "\\n\\n💳 To‘lov cheki yuborildi.\\n"
+                "⚠️ Ma’lumotlarni tekshirib, «✅ Buyurtmani tasdiqlash» tugmasini bosing."
+            )'''
+              ),
+              (
+                  '''    if state and state.get("action") == "order_confirm":
+        if text == "❌ Bekor qilish":
+            states.pop(chat_id, None)
+            send(chat_id, "Buyurtma bekor qilindi.", main_menu(chat_id))
+            return
+        if text == "✅ Buyurtmani tasdiqlash":''',
+                  '''    if state and state.get("action") == "order_confirm":
+        if text == "✅ Buyurtmani tasdiqlash":'''
+              ),
+              (
+                  '''    if data == "order_cancel_cb":
+        states.pop(chat_id, None)
+        send(chat_id, "Buyurtma bekor qilindi.", main_menu(chat_id))
+        return''',
+                  '''    if data == "order_cancel_cb":
+        state = states.get(chat_id)
+        if state and state.get("payment_declared", False):
+            send(
+                chat_id,
+                "📸 To‘lov cheki yuborilgan. Endi buyurtmani bekor qilib bo‘lmaydi. Ma’lumotlarni tekshirib, tasdiqlang.",
+                order_edit_keyboard(state)
+            )
+            return
+        states.pop(chat_id, None)
+        send(chat_id, "Buyurtma bekor qilindi.", main_menu(chat_id))
+        return'''
+              ),
+              (
+                  '''    if data == "order_payment_done":
+        state = states.get(chat_id)
+        if not state or state.get("action") != "order_confirm":
+            return
+        state["action"] = "awaiting_receipt"''',
+                  '''    if data == "order_payment_done":
+        state = states.get(chat_id)
+        if not state or state.get("action") != "order_confirm":
+            return
+        if state.get("payment_declared", False):
+            send(
+                chat_id,
+                "📸 To‘lov cheki allaqachon yuborilgan. Ma’lumotlarni tekshirib, buyurtmani tasdiqlang.",
+                order_edit_keyboard(state)
+            )
+            return
+        state["action"] = "awaiting_receipt"'''
+              ),
+              (
+                  'send(chat_id, "💳 Avval «💳 To‘lov qildim» tugmasini bosing.",\n                 order_edit_keyboard(state))',
+                  'send(chat_id, "💳 Avval «📸 To‘lov chekini yuborish» tugmasini bosing.",\n                 order_edit_keyboard(state))'
+              ),
+              (
+                  'prompts = {"orderedit_name":"📝 Yangi ismingizni yozing:", "orderedit_phone":"📱 Yangi telefon raqamingizni yozing:", "orderedit_address":"📍 Yangi manzilingizni yozing:"}',
+                  'prompts = {"orderedit_name":"📝 Yangi ismingizni yozing:", "orderedit_phone":"📱 Yangi telefon raqamingizni yozing:", "orderedit_address":"📍 Yangi manzil va xona raqamini to‘liq yozing.\\n\\nMasalan: 경상북도 경산시 계양로 37길 7-3, 808호"}'
+              ),
+          ]
+
+          for index, (old, new) in enumerate(replacements, 1):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Replacement {index} expected exactly once, found {count}")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Verify Python syntax
+        run: python -m py_compile bot.py
+
+      - name: Verify required behavior markers
+        shell: python
+        run: |
+          from pathlib import Path
+          text = Path("bot.py").read_text(encoding="utf-8")
+          required = [
+              "📍 Manzil va xona raqamini to‘liq yozing.",
+              "Masalan: 경상북도 경산시 계양로 37길 7-3, 808호",
+              "📍 Yangi manzil va xona raqamini to‘liq yozing.",
+              "To‘lov cheki yuborilgan. Endi buyurtmani bekor qilib bo‘lmaydi.",
+              "«📸 To‘lov chekini yuborish»",
+          ]
+          for item in required:
+              if item not in text:
+                  raise SystemExit(f"Missing required marker: {item}")
+
+      - name: Commit bot fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git diff --cached --quiet || git commit -m "Fix address and receipt cancellation flow"
+          git push
