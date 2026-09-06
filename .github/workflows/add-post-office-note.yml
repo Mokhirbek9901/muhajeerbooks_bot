@@ -15,34 +15,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Patch bot
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('bot.py')
-          t=p.read_text(encoding='utf-8')
-          old='''        send(
-            order["chat_id"],
-            "✅ BUYURTMANGIZ QABUL QILINDI!\\n\\n" + order_receipt_text(order),
-            main_menu(order["chat_id"])
-        )
-'''
-          new='''        send(
-            order["chat_id"],
-            "✅ BUYURTMANGIZ QABUL QILINDI!\\n\\n" + order_receipt_text(order) +
-            "\\n\\n📦 Kitoblaringiz pochtaga topshirilganda sizga alohida xabar yuboriladi.",
-            main_menu(order["chat_id"])
-        )
-'''
-          if t.count(old) != 1:
-              raise SystemExit(f'Expected payment confirmation block once, found {t.count(old)}')
-          t=t.replace(old,new,1)
-          p.write_text(t,encoding='utf-8')
-          PY
-      - name: Syntax check
-        run: python -m py_compile bot.py
-      - name: Commit bot.py
-        run: |
+      - run: python .github/add_post_office_note.py
+      - run: python -m py_compile bot.py
+      - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bot.py
