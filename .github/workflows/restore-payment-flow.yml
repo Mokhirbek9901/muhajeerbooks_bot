@@ -40,10 +40,8 @@ jobs:
 '''
           assert t.count(old)==1, t.count(old)
           t=t.replace(old,new,1)
-
           start=t.index('    if data.startswith("ship_"):\n')
           end=t.index('    # =========================\n    # ADMIN: DELIVERED', start)
-          old_ship=t[start:end]
           new_ship='''    if data.startswith("ship_"):
         if not is_admin(chat_id):
             return
@@ -66,7 +64,6 @@ jobs:
 
 '''
           t=t[:start]+new_ship+t[end:]
-
           old_msg='''        send(
             order["chat_id"],
             f"✅ To‘lovingiz tasdiqlandi!\\n\\n"
