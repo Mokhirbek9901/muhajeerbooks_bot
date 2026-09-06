@@ -1,0 +1,70 @@
+from pathlib import Path
+
+p = Path('bot.py')
+t = p.read_text(encoding='utf-8')
+
+old = '''def admin_order_status_keyboard(order_id, status):
+    buttons=[]
+    if status in ("pending", "paid"):
+        buttons.append([{ "text":"🚚 Jo‘natildi", "callback_data":f"ship_{order_id}" }])
+    buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
+    return {"inline_keyboard":buttons}
+'''
+new = '''def admin_order_status_keyboard(order_id, status):
+    buttons=[]
+    if status == "pending":
+        buttons.append([{ "text":"💳 To‘lov qilindi", "callback_data":f"paid_{order_id}" }])
+        buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
+    elif status == "paid":
+        buttons.append([{ "text":"🚚 Jo‘natildi", "callback_data":f"ship_{order_id}" }])
+    buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
+    return {"inline_keyboard":buttons}
+'''
+assert t.count(old) == 1, f'keyboard block count={t.count(old)}'
+t = t.replace(old, new, 1)
+
+start = t.index('    if data.startswith("ship_"):\n')
+end = t.index('    # =========================\n    # ADMIN: DELIVERED', start)
+new_ship = '''    if data.startswith("ship_"):
+        if not is_admin(chat_id):
+            return
+        order_id = data.split("_", 1)[1]
+        order = orders.get(order_id)
+        if not order or order.get("status") != "paid":
+            send(chat_id, "⚠️ Avval to‘lovni tasdiqlang.")
+            return
+        order["status"] = "shipped"
+        save_orders()
+        send(chat_id, f"🚚 Buyurtma №{order_id} jo‘natildi.", admin_menu())
+        send(
+            order["chat_id"],
+            "🚚 Kitobingiz jo‘natildi!\\n\\n"
+            "📦 Buyurtmangiz 1–3 ish kunida yetib boradi.\\n\\n"
+            "Xaridingiz uchun rahmat! ❤️",
+            main_menu(order["chat_id"])
+        )
+        return
+
+'''
+t = t[:start] + new_ship + t[end:]
+
+old_msg = '''        send(
+            order["chat_id"],
+            f"✅ To‘lovingiz tasdiqlandi!\\n\\n"
+            f"🔢 Zakaz №{order_id}\\n"
+            f"💵 Jami: ₩{order['grand_total']:,}\\n\\n"
+            "📦 Buyurtmangiz tez orada yuboriladi.\\n"
+            "Rahmat! ❤️",
+            main_menu(order["chat_id"])
+        )
+'''
+new_msg = '''        send(
+            order["chat_id"],
+            "✅ BUYURTMANGIZ QABUL QILINDI!\\n\\n" + order_receipt_text(order),
+            main_menu(order["chat_id"])
+        )
+'''
+assert t.count(old_msg) == 1, f'paid message count={t.count(old_msg)}'
+t = t.replace(old_msg, new_msg, 1)
+
+p.write_text(t, encoding='utf-8')
