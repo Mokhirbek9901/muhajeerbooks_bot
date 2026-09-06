@@ -610,11 +610,17 @@ def remove_global_discount():
     return changed
 
 
+def _strike_text(text):
+    """Matnni Telegram parse_mode ishlatmasdan ustidan chiziq bilan ko‘rsatadi."""
+    return "".join(ch + "\u0336" for ch in str(text))
+
+
 def price_text(book):
     price = effective_price(book)
     old = int(book.get("old_price", 0) or 0)
     if old > price > 0:
-        return f"💰 Eski narx: ₩{old:,}\n🔥 Hozir: ₩{price:,}"
+        old_price = _strike_text(f"₩{old:,}")
+        return f"🔴 Eski narx: {old_price}\n🟢🔥 Chegirmadagi narx: ₩{price:,}"
     return f"💰 Narx: ₩{price:,}"
 
 
@@ -955,13 +961,23 @@ def main_menu(chat_id):
     }
 
 
+def global_discount_active():
+    return any("global_discount_base_price" in book for book in books)
+
+
 def admin_menu():
+    discount_button = (
+        {"text": "🛑 Chegirmani to‘xtatish"}
+        if global_discount_active()
+        else {"text": "💸 Chegirma berish"}
+    )
+
     return {
         "keyboard": [
             [{"text": "📚 Kitoblar ro‘yxati"}, {"text": "🔎 Kitob qidirish"}],
             [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
-            [{"text": "💸 Chegirma berish"}, {"text": "❌ Chegirmani bekor qilish"}],
+            [discount_button],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
             [{"text": "🧪 Random xabarni sinash"}],
@@ -2105,7 +2121,7 @@ def handle_message(message):
             )
             return
 
-        if text == "❌ Chegirmani bekor qilish":
+        if text in ("🛑 Chegirmani to‘xtatish", "❌ Chegirmani bekor qilish"):
             try:
                 changed = remove_global_discount()
                 if changed:
