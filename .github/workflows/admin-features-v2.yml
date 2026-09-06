@@ -17,11 +17,17 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           p=Path('.github/admin_features_v2.py')
-          s=p.read_text(encoding='utf-8')
-          a="r('            \"old_price\": 0,\\n            \"photo_id\": \"\",','            \"old_price\": 0,\\n            \"cost_price\": 0,\\n            \"photo_id\": \"\",','assasin-cost')\nr('            \"old_price\": 0,\\n            \"photo_id\": \"\",\\n            \"cover\": \"Ko‘rsatilmagan\",','            \"old_price\": 0,\\n            \"cost_price\": 0,\\n            \"photo_id\": \"\",\\n            \"cover\": \"Ko‘rsatilmagan\",','default-cost')"
-          b="old_cost='            \\\"old_price\\\": 0,\\\\n            \\\"photo_id\\\": \\\"\\\",'\nif t.count(old_cost)!=2: raise RuntimeError(f'cost-defaults: {t.count(old_cost)}')\nt=t.replace(old_cost,'            \\\"old_price\\\": 0,\\\\n            \\\"cost_price\\\": 0,\\\\n            \\\"photo_id\\\": \\\"\\\",')"
-          if a not in s: raise SystemExit('pre-fix anchor not found')
-          p.write_text(s.replace(a,b,1),encoding='utf-8')
+          lines=p.read_text(encoding='utf-8').splitlines()
+          idx=next(i for i,line in enumerate(lines) if "assasin-cost" in line)
+          if "default-cost" not in lines[idx+1]:
+              raise SystemExit('default-cost line not found')
+          replacement=[
+              "old_cost='            \"old_price\": 0,\\n            \"photo_id\": \"\",'",
+              "if t.count(old_cost)!=2: raise RuntimeError(f'cost-defaults: {t.count(old_cost)}')",
+              "t=t.replace(old_cost,'            \"old_price\": 0,\\n            \"cost_price\": 0,\\n            \"photo_id\": \"\",')",
+          ]
+          lines[idx:idx+2]=replacement
+          p.write_text('\n'.join(lines)+'\n',encoding='utf-8')
           PY
       - name: Patch bot
         run: python .github/admin_features_v2.py
