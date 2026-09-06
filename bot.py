@@ -1417,7 +1417,7 @@ def order_preview_text(state, show_payment_info=True):
         + f"\n🚚 Yetkazib berish: {delivery_text(fee)}"
         + "\n⏱ Yetkazish muddati: 1–3 ish kuni"
         + free_note
-        + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}"
+        + f"\n\n━━━━━━━━━━━━━━\n💵 JAMI TO‘LOV: ₩{grand_total:,}\n━━━━━━━━━━━━━━"
     )
 
     if show_payment_info:
@@ -3014,7 +3014,8 @@ def handle_message(message):
 
         send(
             chat_id,
-            "📞 Telefon raqamingizni yozing:"
+            "📞 Telefon raqamingizni yozing.\n\n"
+            "Masalan: 01012345678"
         )
         return
 
@@ -3028,7 +3029,7 @@ def handle_message(message):
                 chat_id,
                 "❌ Telefon raqami noto‘g‘ri.\n\n"
                 "8–15 ta raqamdan iborat telefon raqamingizni qayta yozing.\n"
-                "Masalan: 010-1234-5678"
+                "Masalan: 01012345678"
             )
             return
         state["phone"] = text
@@ -3092,7 +3093,7 @@ def handle_message(message):
             send(
                 chat_id,
                 "❌ Telefon raqami noto‘g‘ri. 8–15 ta raqam bilan qayta yozing.\n"
-                "Masalan: 010-1234-5678"
+                "Masalan: 01012345678"
             )
             return
         state[key] = text
