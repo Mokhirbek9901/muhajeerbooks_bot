@@ -50,3 +50,5 @@ def serve():
 if __name__ == '__main__':
     threading.Thread(target=serve, daemon=True).start()
     bot.main()
+
+# trigger cover migration
