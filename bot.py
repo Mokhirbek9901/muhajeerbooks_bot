@@ -1429,9 +1429,9 @@ def quick_stock_list_keyboard(chat_id=None):
     for b in items:
         bid=int(b["id"])
         value=int(draft.get(str(bid),b.get("stock",0)))
+        buttons.append([{"text":f"📦 {b['name']} — {value} ta","callback_data":"qstock_noop"}])
         buttons.append([
             {"text":"➖1","callback_data":f"qstock_batch_{bid}_-1"},
-            {"text":f"📦 {b['name']}","callback_data":"qstock_noop"},
             {"text":f"{value} ta","callback_data":"qstock_noop"},
             {"text":"➕1","callback_data":f"qstock_batch_{bid}_1"},
         ])
