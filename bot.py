@@ -949,8 +949,7 @@ def order_edit_keyboard(state=None):
         "inline_keyboard": [
             [{"text": "✏️ Ism", "callback_data": "orderedit_name"},
              {"text": "📱 Telefon", "callback_data": "orderedit_phone"}],
-            [{"text": "📍 Manzil", "callback_data": "orderedit_address"},
-             {"text": "🛒 Savat", "callback_data": "orderedit_cart"}],
+            [{"text": "📍 Manzilni tahrirlash", "callback_data": "orderedit_address"}],
             [{"text": "✅ Buyurtmani tasdiqlash", "callback_data": "order_confirm_cb"}],
             [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}],
         ]
