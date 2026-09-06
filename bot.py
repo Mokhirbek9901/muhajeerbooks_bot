@@ -935,18 +935,27 @@ def order_cart_keyboard(chat_id):
 
 def order_edit_keyboard(state=None):
     paid_declared = bool((state or {}).get("payment_declared", False))
-    buttons = [
-        [{"text": "✏️ Ism", "callback_data": "orderedit_name"},
-         {"text": "📱 Telefon", "callback_data": "orderedit_phone"}],
-        [{"text": "📍 Manzil", "callback_data": "orderedit_address"},
-         {"text": "🛒 Savat", "callback_data": "orderedit_cart"}],
-    ]
-    if paid_declared:
-        buttons.append([{"text": "✅ Buyurtmani tasdiqlash", "callback_data": "order_confirm_cb"}])
-    else:
-        buttons.append([{"text": "📸 To‘lov chekini yuborish", "callback_data": "order_payment_done"}])
-    buttons.append([{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}])
-    return {"inline_keyboard": buttons}
+
+    # To‘lovdan oldin mijozni chalg‘itmaslik uchun faqat chek yuborish ko‘rsatiladi.
+    if not paid_declared:
+        return {
+            "inline_keyboard": [
+                [{"text": "📸 To‘lov chekini yuborish", "callback_data": "order_payment_done"}],
+                [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}],
+            ]
+        }
+
+    # Chek yuborilgach mijoz ma’lumotlarni tekshirishi va kerak bo‘lsa tahrirlashi mumkin.
+    return {
+        "inline_keyboard": [
+            [{"text": "✏️ Ism", "callback_data": "orderedit_name"},
+             {"text": "📱 Telefon", "callback_data": "orderedit_phone"}],
+            [{"text": "📍 Manzil", "callback_data": "orderedit_address"},
+             {"text": "🛒 Savat", "callback_data": "orderedit_cart"}],
+            [{"text": "✅ Buyurtmani tasdiqlash", "callback_data": "order_confirm_cb"}],
+            [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}],
+        ]
+    }
 
 
 def order_customer_info_text(state):
@@ -1194,7 +1203,11 @@ def cart_text(chat_id):
         lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
     fee = delivery_fee_for_cart(cart)
     grand_total = total + fee
-    bonus = "\n🎁 4 ta va undan ko‘p kitob uchun yetkazib berish bepul!" if fee == 0 else ""
+    bonus = (
+        "\n🎁 Aksiya qo‘llandi: 4 ta yoki undan ko‘p kitob — yetkazib berish bepul!"
+        if fee == 0
+        else "\nℹ️ 4 ta yoki undan ko‘p kitob xarid qilsangiz, yetkazib berish bepul."
+    )
     return (
         "🛒 Savatchangiz:\n\n"
         + "\n".join(lines)
@@ -1372,7 +1385,11 @@ def order_preview_text(state, show_payment_info=True):
 
     fee = delivery_fee_for_cart(state.get("cart", {}))
     grand_total = total + fee
-    free_note = "\n🎁 4 ta va undan ko‘p kitob uchun yetkazib berish bepul!" if fee == 0 else ""
+    free_note = (
+        "\n🎁 Aksiya qo‘llandi: 4 ta yoki undan ko‘p kitob — yetkazib berish bepul!"
+        if fee == 0
+        else "\nℹ️ 4 ta yoki undan ko‘p kitob xarid qilsangiz, yetkazib berish bepul."
+    )
     text = (
         "🧾 BUYURTMANGIZ\n\n"
         + "\n".join(lines)
@@ -3766,7 +3783,18 @@ def handle_callback(callback):
             states[chat_id]["grand_total"] = grand
             send(chat_id, "✅ Oldingi ma’lumotlaringiz ishlatildi.\n\n" + preview + "\n\n" + order_customer_info_text(states[chat_id]), order_edit_keyboard(states[chat_id]))
         else:
-            send(chat_id, f"⚡ TEZ XARID\n\n📖 {book['name']} × 1 = ₩{effective_price(book):,}\n\n📝 Buyurtma uchun ismingizni yozing:")
+            book_price = effective_price(book)
+            fee = delivery_fee_for_cart({book_id: 1})
+            grand_total = book_price + fee
+            send(
+                chat_id,
+                f"⚡ TEZ XARID\n\n"
+                f"📖 {book['name']} × 1 = ₩{book_price:,}\n"
+                f"🚚 Yetkazib berish: {delivery_text(fee)}\n"
+                f"💵 JAMI TO‘LOV: ₩{grand_total:,}\n\n"
+                "ℹ️ 4 ta yoki undan ko‘p kitob xarid qilsangiz, yetkazib berish bepul.\n\n"
+                "📦 Buyurtmani pochta orqali yuborishimiz uchun ismingizni yozing:"
+            )
         return
 
     if data.startswith("addcart_"):
