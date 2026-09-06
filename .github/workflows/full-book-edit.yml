@@ -1,0 +1,170 @@
+name: Full book edit
+on:
+  push:
+    paths: ['.github/full-book-edit.trigger']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch bot
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('bot.py')
+          t=p.read_text(encoding='utf-8')
+
+          old='''            [{"text": "💰 Narxini o‘zgartirish", "callback_data": f"eprice_{book_id}"}],
+            [{"text": "🎁 Eski narx/chegirma", "callback_data": f"eoldprice_{book_id}"}],
+            [{"text": "📦 Qoldig‘ini o‘zgartirish", "callback_data": f"estock_{book_id}"}],
+'''
+          new='''            [{"text": "💰 Narxini o‘zgartirish", "callback_data": f"eprice_{book_id}"}],
+            [{"text": "📦 Qoldig‘ini o‘zgartirish", "callback_data": f"estock_{book_id}"}],
+'''
+          assert t.count(old)==1, t.count(old)
+          t=t.replace(old,new,1)
+
+          old2='''            [{"text": "📸 Rasmni o‘zgartirish", "callback_data": f"ephoto_{book_id}"}],
+            [{"text": "🔥 Tavsiya etilgan ON/OFF", "callback_data": f"erec_{book_id}"}],
+'''
+          new2='''            [{"text": "📸 Rasmni o‘zgartirish", "callback_data": f"ephoto_{book_id}"}],
+            [{"text": "🛠 Hammasini tahrirlash", "callback_data": f"eall_{book_id}"}],
+            [{"text": "🔥 Tavsiya etilgan ON/OFF", "callback_data": f"erec_{book_id}"}],
+'''
+          assert t.count(old2)==1, t.count(old2)
+          t=t.replace(old2,new2,1)
+
+          anchor='''    # =========================
+    # RENAME
+    # =========================
+'''
+          callback='''    # =========================
+    # FULL BOOK EDIT
+    # =========================
+
+    if data.startswith("eall_"):
+        if not is_admin(chat_id):
+            return
+        book_id = int(data.split("_", 1)[1])
+        book = find_book(book_id)
+        if not book:
+            send(chat_id, "❌ Kitob topilmadi.", admin_menu())
+            return
+        states[chat_id] = {"action": "full_edit_name", "book_id": book_id}
+        send(chat_id, f"🛠 {book['name']} — umumiy tahrirlash\\n\\n✏️ Yangi nomini yozing:\\nHozirgi: {book['name']}")
+        return
+
+'''
+          assert t.count(anchor)==1, t.count(anchor)
+          t=t.replace(anchor,callback+anchor,1)
+
+          anchor3='''            if action == "add_name":
+'''
+          flow='''            if action in ("full_edit_name", "full_edit_price", "full_edit_stock", "full_edit_cover", "full_edit_category", "full_edit_author", "full_edit_description", "full_edit_photo"):
+                book = find_book(state.get("book_id"))
+                if not book:
+                    states.pop(chat_id, None)
+                    send(chat_id, "❌ Kitob topilmadi.", admin_menu())
+                    return
+
+                if action == "full_edit_name":
+                    if not text.strip():
+                        send(chat_id, "❌ Nom bo‘sh bo‘lmasin.")
+                        return
+                    book["name"] = text.strip()
+                    state["action"] = "full_edit_price"
+                    send(chat_id, f"💰 Yangi narxni yozing (₩).\\nHozirgi: ₩{int(book.get('price', 0)):,}")
+                    return
+
+                if action == "full_edit_price":
+                    try:
+                        value = int(text.replace(",", "").replace(" ", ""))
+                        if value <= 0: raise ValueError
+                    except ValueError:
+                        send(chat_id, "❌ Narx musbat son bo‘lsin. Masalan: 25000")
+                        return
+                    book["price"] = value
+                    state["action"] = "full_edit_stock"
+                    send(chat_id, f"📦 Yangi qoldiq sonini yozing.\\nHozirgi: {int(book.get('stock', 0))} ta")
+                    return
+
+                if action == "full_edit_stock":
+                    try:
+                        value = int(text.replace(",", "").replace(" ", ""))
+                        if value < 0: raise ValueError
+                    except ValueError:
+                        send(chat_id, "❌ Qoldiq 0 yoki undan katta son bo‘lsin.")
+                        return
+                    old_stock = int(book.get("stock", 0))
+                    book["stock"] = value
+                    if old_stock <= 0 < value:
+                        notify_restock(book)
+                    state["action"] = "full_edit_cover"
+                    send(chat_id, f"📕 Muqova turini yozing: Qattiq / Yumshoq / Flexible\\nO‘chirish uchun: —\\nHozirgi: {book.get('cover', 'Ko‘rsatilmagan')}")
+                    return
+
+                if action == "full_edit_cover":
+                    cover = normalize_cover(text)
+                    if cover is None:
+                        send(chat_id, "❌ Faqat Qattiq, Yumshoq yoki Flexible deb yozing. O‘chirish uchun: —")
+                        return
+                    book["cover"] = cover
+                    state["action"] = "full_edit_category"
+                    send(chat_id, f"📂 Yangi kategoriyani yozing.\\nHozirgi: {book.get('category', 'Boshqalar')}")
+                    return
+
+                if action == "full_edit_category":
+                    book["category"] = normalize_category(text)
+                    state["action"] = "full_edit_author"
+                    send(chat_id, f"✍️ Yangi muallifni yozing. Bilinmasa: —\\nHozirgi: {book.get('author', 'Ko‘rsatilmagan')}")
+                    return
+
+                if action == "full_edit_author":
+                    book["author"] = "Ko‘rsatilmagan" if text.strip() in ("-", "—") else text.strip()
+                    state["action"] = "full_edit_description"
+                    send(chat_id, f"📄 Yangi tavsifni yozing. Bo‘lmasa: —\\n\\nHozirgi: {book.get('description', 'Ma’lumot kiritilmagan.')}")
+                    return
+
+                if action == "full_edit_description":
+                    book["description"] = "Ma’lumot kiritilmagan." if text.strip() in ("-", "—") else text.strip()
+                    state["action"] = "full_edit_photo"
+                    send(chat_id, "📸 Yangi rasmni yuboring.\\nRasmni o‘chirish uchun: —\\nHozirgi rasmni saqlash uchun: 0")
+                    return
+
+                photos = message.get("photo") or []
+                if photos:
+                    book["photo_id"] = photos[-1].get("file_id", "")
+                elif text.strip() == "—":
+                    book["photo_id"] = ""
+                elif text.strip() == "0":
+                    pass
+                else:
+                    send(chat_id, "📸 Rasm yuboring, o‘chirish uchun — yoki hozirgisini saqlash uchun 0 yozing.")
+                    return
+
+                save_books()
+                load_books()
+                states.pop(chat_id, None)
+                book = find_book(book.get("id")) or book
+                send(chat_id, f"✅ {book['name']} — barcha ma’lumotlar yangilandi.", edit_fields_menu(book["id"]))
+                return
+
+'''
+          assert t.count(anchor3)==1, t.count(anchor3)
+          t=t.replace(anchor3,flow+anchor3,1)
+          p.write_text(t,encoding='utf-8')
+          PY
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Commit bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Improve book edit menu and add full edit flow"
+          git push origin main
