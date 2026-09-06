@@ -1091,12 +1091,12 @@ def admin_menu():
             [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
             [{"text": "⚡ Tezkor qoldiq"}],
-            [discount_button],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
             [{"text": "📅 Bugungi hisobot"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
             [{"text": "🧪 Random xabarni sinash"}],
             [{"text": "💾 Backup"}, {"text": "📥 Backup tiklash"}],
+            [discount_button],
             [{"text": "🏠 Asosiy menyu"}],
         ],
         "resize_keyboard": True
