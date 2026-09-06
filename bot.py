@@ -1190,46 +1190,33 @@ def saved_customer_info(chat_id):
 def cart_text(chat_id):
     cart = carts.get(chat_id, {})
     if not cart:
-        return (
-            "🛒 SAVATCHANGIZ\n"
-            "━━━━━━━━━━━━━━\n\n"
-            "Hozircha savatchangiz bo‘sh."
-        )
+        return "🛒 SAVATCHA\n\nHozircha savatchangiz bo‘sh."
 
     lines = []
     total = 0
-    item_number = 0
     for book_id, qty in cart.items():
         book = find_book(book_id)
         if not book:
             continue
-        item_number += 1
-        unit_price = effective_price(book)
-        subtotal = unit_price * int(qty)
+        subtotal = effective_price(book) * int(qty)
         total += subtotal
-        lines.append(
-            f"{item_number}. 📖 {book['name']}\n"
-            f"   {qty} ta × ₩{unit_price:,} = ₩{subtotal:,}"
-        )
+        lines.append(f"📖 {book['name']} × {qty} — ₩{subtotal:,}")
 
     fee = delivery_fee_for_cart(cart)
     grand_total = total + fee
-    if fee == 0:
-        delivery_note = "🎁 4+ kitob aksiyasi qo‘llandi — yetkazib berish BEPUL!"
-    else:
-        delivery_note = "ℹ️ 4 ta yoki undan ko‘p kitob olsangiz, yetkazib berish bepul."
+    delivery_note = (
+        "🎁 4+ kitob: yetkazib berish BEPUL!"
+        if fee == 0
+        else "🎁 4 ta yoki ko‘proq kitob olsangiz, yetkazib berish bepul."
+    )
 
     return (
-        "🛒 SAVATCHANGIZ\n"
-        "━━━━━━━━━━━━━━\n\n"
-        + "\n\n".join(lines)
-        + "\n\n━━━━━━━━━━━━━━"
-        + f"\n💰 Kitoblar jami: ₩{total:,}"
-        + f"\n🚚 Yetkazib berish: {delivery_text(fee)}"
+        "🛒 SAVATCHA\n\n"
+        + "\n".join(lines)
+        + f"\n\n💰 Kitoblar: ₩{total:,}"
+        + f"\n🚚 Yetkazish: {delivery_text(fee)}"
+        + f"\n💳 JAMI: ₩{grand_total:,}"
         + f"\n\n{delivery_note}"
-        + "\n━━━━━━━━━━━━━━"
-        + f"\n💳 JAMI TO‘LOV: ₩{grand_total:,}"
-        + "\n\nQuyidagi tugmalardan birini tanlang 👇"
     )
 
 
@@ -1245,33 +1232,26 @@ def cart_keyboard(chat_id):
         }
 
     buttons = []
-
     for book_id, qty in list(cart.items()):
         book = find_book(book_id)
         if not book:
             continue
 
-        buttons.append([
-            {"text": f"📖 {book['name']}", "callback_data": "cart_noop"}
-        ])
+        # 1 dona paytida ➖ bosilsa kitob savatdan butunlay chiqadi.
         buttons.append([
             {"text": "➖", "callback_data": f"cartminus_{book_id}"},
-            {"text": f"{qty} ta", "callback_data": "cart_noop"},
+            {"text": f"{book['name']} · {qty} ta", "callback_data": "cart_noop"},
             {"text": "➕", "callback_data": f"cartplus_{book_id}"},
-        ])
-        buttons.append([
-            {"text": "🗑 Shu kitobni olib tashlash",
-             "callback_data": f"cartdelete_{book_id}"}
         ])
 
     buttons.append([
         {"text": "➕ Yana kitob qo‘shish", "callback_data": "books"}
     ])
     buttons.append([
-        {"text": "✅ Buyurtma berish", "callback_data": "cart_order"}
+        {"text": "✅ BUYURTMA BERISH", "callback_data": "cart_order"}
     ])
     buttons.append([
-        {"text": "🗑 Savatni tozalash", "callback_data": "cartclear"},
+        {"text": "🗑 Tozalash", "callback_data": "cartclear"},
         {"text": "🏠 Bosh menyu", "callback_data": "home"}
     ])
 
