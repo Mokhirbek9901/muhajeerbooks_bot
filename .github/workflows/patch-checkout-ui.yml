@@ -22,27 +22,19 @@ jobs:
           path = Path("bot.py")
           text = path.read_text(encoding="utf-8")
 
-          old_phone = '''        send(
-              chat_id,
-              "📞 Telefon raqamingizni yozing:"
-          )'''
-          new_phone = '''        send(
-              chat_id,
-              "📞 Telefon raqamingizni yozing.\\n\\n"
-              "Masalan: 01012345678"
-          )'''
-
-          if old_phone not in text:
-              raise SystemExit("Phone prompt target not found")
+          old_phone = '"📞 Telefon raqamingizni yozing:"'
+          new_phone = '"📞 Telefon raqamingizni yozing.\\n\\n"\n            "Masalan: 01012345678"'
+          if text.count(old_phone) != 1:
+              raise SystemExit(f"Phone prompt expected once, found {text.count(old_phone)}")
           text = text.replace(old_phone, new_phone, 1)
 
           old_example = "Masalan: 010-1234-5678"
           if old_example not in text:
-              raise SystemExit("Phone example target not found")
+              raise SystemExit("Phone validation example target not found")
           text = text.replace(old_example, "Masalan: 01012345678")
 
-          old_total = '+ f"\\n💵 JAMI TO‘LOV: ₩{grand_total:,}"'
-          new_total = '+ f"\\n\\n━━━━━━━━━━━━━━\\n💵 JAMI TO‘LOV: ₩{grand_total:,}\\n━━━━━━━━━━━━━━"'
+          old_total = 'f"\\n💵 JAMI TO‘LOV: ₩{grand_total:,}"'
+          new_total = 'f"\\n\\n━━━━━━━━━━━━━━\\n💵 JAMI TO‘LOV: ₩{grand_total:,}\\n━━━━━━━━━━━━━━"'
           if text.count(old_total) != 1:
               raise SystemExit(f"Total target expected once, found {text.count(old_total)}")
           text = text.replace(old_total, new_total, 1)
@@ -52,6 +44,21 @@ jobs:
 
       - name: Verify Python syntax
         run: python -m py_compile bot.py
+
+      - name: Verify requested text
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("bot.py").read_text(encoding="utf-8")
+          required = [
+              "📞 Telefon raqamingizni yozing.",
+              "Masalan: 01012345678",
+              "━━━━━━━━━━━━━━\\n💵 JAMI TO‘LOV: ₩{grand_total:,}\\n━━━━━━━━━━━━━━",
+          ]
+          for marker in required:
+              if marker not in text:
+                  raise SystemExit(f"Missing marker: {marker}")
+          PY
 
       - name: Commit patch
         run: |
