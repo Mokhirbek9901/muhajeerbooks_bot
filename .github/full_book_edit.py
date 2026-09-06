@@ -27,7 +27,7 @@ anchor = '''    # =========================
     # RENAME
     # =========================
 '''
-callback = '''    # =========================
+callback = r'''    # =========================
     # FULL BOOK EDIT
     # =========================
 
@@ -49,7 +49,7 @@ t = t.replace(anchor, callback + anchor, 1)
 
 anchor3 = '''            if action == "add_name":
 '''
-flow = '''            if action in ("full_edit_name", "full_edit_price", "full_edit_stock", "full_edit_cover", "full_edit_category", "full_edit_author", "full_edit_description", "full_edit_photo"):
+flow = r'''            if action in ("full_edit_name", "full_edit_price", "full_edit_stock", "full_edit_cover", "full_edit_category", "full_edit_author", "full_edit_description", "full_edit_photo"):
                 book = find_book(state.get("book_id"))
                 if not book:
                     states.pop(chat_id, None)
