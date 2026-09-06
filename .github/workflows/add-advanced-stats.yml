@@ -3,7 +3,7 @@ name: Add advanced statistics
 on:
   push:
     paths:
-      - '.github/add-advanced-stats.trigger'
+      - ".github/add-advanced-stats.trigger"
 
 permissions:
   contents: write
@@ -15,105 +15,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Patch advanced statistics
+      - name: Patch statistics
+        env:
+          PATCH_B64: "ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpwYXRoID0gUGF0aCgiYm90LnB5IikKdGV4dCA9IHBhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpCgpvbGQgPSAnICAgIGF2Z19vcmRlciA9IHJldmVudWUgLyBsZW4oc3VjY2Vzc2Z1bCkgaWYgc3VjY2Vzc2Z1bCBlbHNlIDAKCiAgICBzb2xkID0ge30KICAgIGN1c3RvbWVyX3RvdGFscyA9IHt9CiAgICBmb3IgbyBpbiBzdWNjZXNzZnVsOgogICAgICAgIGNpZCA9IHN0cihvLmdldCgiY2hhdF9pZCIpKQogICAgICAgIGN1c3RvbWVyX3RvdGFsc1tjaWRdID0gY3VzdG9tZXJfdG90YWxzLmdldChjaWQsIDApICsgaW50KG8uZ2V0KCJncmFuZF90b3RhbCIsIDApKQogICAgICAgIGZvciBiaWQsIHF0eSBpbiBvLmdldCgiY2FydCIsIHt9KS5pdGVtcygpOgogICAgICAgICAgICBzb2xkW2ludChiaWQpXSA9IHNvbGQuZ2V0KGludChiaWQpLCAwKSArIGludChxdHkpCgogICAgdG9wID0gc29ydGVkKHNvbGQuaXRlbXMoKSwga2V5PWxhbWJkYSB4OiB4WzFdLCByZXZlcnNlPVRydWUpWzoxMF0KICAgIHRvcF9jdXN0b21lcnMgPSBzb3J0ZWQoY3VzdG9tZXJfdG90YWxzLml0ZW1zKCksIGtleT1sYW1iZGEgeDogeFsxXSwgcmV2ZXJzZT1UcnVlKVs6NV0KJwoKbmV3ID0gJyAgICBhdmdfb3JkZXIgPSByZXZlbnVlIC8gbGVuKHN1Y2Nlc3NmdWwpIGlmIHN1Y2Nlc3NmdWwgZWxzZSAwCiAgICBmcmVlX2RlbGl2ZXJ5X29yZGVycyA9IFsKICAgICAgICBvIGZvciBvIGluIHN1Y2Nlc3NmdWwKICAgICAgICBpZiBpbnQoby5nZXQoImRlbGl2ZXJ5X2ZlZSIsIERFTElWRVJZX0ZFRSkpID09IDAKICAgIF0KICAgIGZyZWVfZGVsaXZlcnlfY29zdCA9IGxlbihmcmVlX2RlbGl2ZXJ5X29yZGVycykgKiBpbnQoREVMSVZFUllfRkVFKQoKICAgIHNvbGQgPSB7fQogICAgY2F0ZWdvcnlfc2FsZXMgPSB7fQogICAgY3VzdG9tZXJfdG90YWxzID0ge30KICAgIGN1c3RvbWVyX29yZGVyX2NvdW50cyA9IHt9CiAgICBmb3IgbyBpbiBzdWNjZXNzZnVsOgogICAgICAgIGNpZCA9IHN0cihvLmdldCgiY2hhdF9pZCIpKQogICAgICAgIGN1c3RvbWVyX3RvdGFsc1tjaWRdID0gY3VzdG9tZXJfdG90YWxzLmdldChjaWQsIDApICsgaW50KG8uZ2V0KCJncmFuZF90b3RhbCIsIDApKQogICAgICAgIGN1c3RvbWVyX29yZGVyX2NvdW50c1tjaWRdID0gY3VzdG9tZXJfb3JkZXJfY291bnRzLmdldChjaWQsIDApICsgMQogICAgICAgIGZvciBiaWQsIHF0eSBpbiBvLmdldCgiY2FydCIsIHt9KS5pdGVtcygpOgogICAgICAgICAgICBxdHkgPSBpbnQocXR5KQogICAgICAgICAgICBzb2xkW2ludChiaWQpXSA9IHNvbGQuZ2V0KGludChiaWQpLCAwKSArIHF0eQogICAgICAgICAgICBiID0gZmluZF9ib29rKGJpZCkKICAgICAgICAgICAgY2F0ZWdvcnkgPSBub3JtYWxpemVfY2F0ZWdvcnkoYi5nZXQoImNhdGVnb3J5IikpIGlmIGIgZWxzZSAiQm9zaHFhbGFyIgogICAgICAgICAgICBjYXRlZ29yeV9zYWxlc1tjYXRlZ29yeV0gPSBjYXRlZ29yeV9zYWxlcy5nZXQoY2F0ZWdvcnksIDApICsgcXR5CgogICAgdG9wID0gc29ydGVkKHNvbGQuaXRlbXMoKSwga2V5PWxhbWJkYSB4OiB4WzFdLCByZXZlcnNlPVRydWUpWzoxMF0KICAgIHRvcF9jdXN0b21lcnMgPSBzb3J0ZWQoY3VzdG9tZXJfdG90YWxzLml0ZW1zKCksIGtleT1sYW1iZGEgeDogeFsxXSwgcmV2ZXJzZT1UcnVlKVs6NV0KCiAgICBpZiBjYXRlZ29yeV9zYWxlczoKICAgICAgICB0b3BfY2F0ZWdvcnlfbmFtZSwgdG9wX2NhdGVnb3J5X3F0eSA9IG1heChjYXRlZ29yeV9zYWxlcy5pdGVtcygpLCBrZXk9bGFtYmRhIHg6IHhbMV0pCiAgICBlbHNlOgogICAgICAgIHRvcF9jYXRlZ29yeV9uYW1lLCB0b3BfY2F0ZWdvcnlfcXR5ID0gIkhhbGkgc290dXYgeW/igJhxIiwgMAoKICAgIHJlcGVhdF9jdXN0b21lcnMgPSBzdW0oMSBmb3IgY291bnQgaW4gY3VzdG9tZXJfb3JkZXJfY291bnRzLnZhbHVlcygpIGlmIGNvdW50ID49IDIpCiAgICB1bmlxdWVfY3VzdG9tZXJzID0gbGVuKGN1c3RvbWVyX29yZGVyX2NvdW50cykKICAgIHJlcGVhdF9wY3QgPSAocmVwZWF0X2N1c3RvbWVycyAvIHVuaXF1ZV9jdXN0b21lcnMgKiAxMDApIGlmIHVuaXF1ZV9jdXN0b21lcnMgZWxzZSAwCgogICAgYWxsX3N1Y2Nlc3NmdWxfYWZ0ZXJfcmVzZXQgPSBbCiAgICAgICAgbyBmb3IgbyBpbiBvcmRlcnMudmFsdWVzKCkKICAgICAgICBpZiBpbnQoby5nZXQoIm9yZGVyX2lkIiwgMCkgb3IgMCkgPj0gU1RBVFNfUkVTRVRfT1JERVJfSUQKICAgICAgICBhbmQgby5nZXQoInN0YXR1cyIpIGluIHBhaWRfc3RhdHVzZXMKICAgIF0KICAgIGZpcnN0X29yZGVyX2J5X2N1c3RvbWVyID0ge30KICAgIGZvciBvIGluIGFsbF9zdWNjZXNzZnVsX2FmdGVyX3Jlc2V0OgogICAgICAgIGNpZCA9IHN0cihvLmdldCgiY2hhdF9pZCIpKQogICAgICAgIG9pZCA9IGludChvLmdldCgib3JkZXJfaWQiLCAwKSBvciAwKQogICAgICAgIGlmIGNpZCBub3QgaW4gZmlyc3Rfb3JkZXJfYnlfY3VzdG9tZXIgb3Igb2lkIDwgZmlyc3Rfb3JkZXJfYnlfY3VzdG9tZXJbY2lkXToKICAgICAgICAgICAgZmlyc3Rfb3JkZXJfYnlfY3VzdG9tZXJbY2lkXSA9IG9pZAoKICAgIHNlbGVjdGVkX3N1Y2Nlc3NfaWRzID0ge2ludChvLmdldCgib3JkZXJfaWQiLCAwKSBvciAwKSBmb3IgbyBpbiBzdWNjZXNzZnVsfQogICAgbmV3X2N1c3RvbWVycyA9IHN1bSgKICAgICAgICAxIGZvciBvaWQgaW4gZmlyc3Rfb3JkZXJfYnlfY3VzdG9tZXIudmFsdWVzKCkKICAgICAgICBpZiBvaWQgaW4gc2VsZWN0ZWRfc3VjY2Vzc19pZHMKICAgICkKJwoKaWYgdGV4dC5jb3VudChvbGQpICE9IDE6CiAgICByYWlzZSBTeXN0ZW1FeGl0KGYiRXhwZWN0ZWQgZmlyc3Qgc3RhdGlzdGljcyBibG9jayBvbmNlLCBmb3VuZCB7dGV4dC5jb3VudChvbGQpfSIpCnRleHQgPSB0ZXh0LnJlcGxhY2Uob2xkLCBuZXcsIDEpCgpvbGQyID0gJyAgICAgICAgZiLwn5OIIE/igJhydGFjaGEgYnV5dXJ0bWE6IOKCqXthdmdfb3JkZXI6LC4wZn0iLAogICAgICAgIGYi8J+TmiBTb3RpbGdhbiBraXRvYmxhcjoge3N1bShzb2xkLnZhbHVlcygpKX0gZG9uYSIsICIiLAogICAgICAgICLwn4+GIFRPUCAxMCBLSVRPQjoiCicKbmV3MiA9ICcgICAgICAgIGYi8J+TiCBP4oCYcnRhY2hhIGJ1eXVydG1hOiDigql7YXZnX29yZGVyOiwuMGZ9IiwKICAgICAgICBmIvCfk5ogU290aWxnYW4ga2l0b2JsYXI6IHtzdW0oc29sZC52YWx1ZXMoKSl9IGRvbmEiLAogICAgICAgIGYi8J+RpCBZYW5naSBtaWpvemxhcjoge25ld19jdXN0b21lcnN9IHRhIiwKICAgICAgICBmIvCflIEgUWF5dGEgeGFyaWQgcWlsZ2FubGFyOiB7cmVwZWF0X2N1c3RvbWVyc30gdGEgKHtyZXBlYXRfcGN0Oi4xZn0lKSIsCiAgICAgICAgKGYi8J+PtyBFbmcga2/igJhwIHNvdGlsZ2FuIGthdGVnb3JpeWE6IHt0b3BfY2F0ZWdvcnlfbmFtZX0g4oCUIHt0b3BfY2F0ZWdvcnlfcXR5fSBkb25hIgogICAgICAgICBpZiBjYXRlZ29yeV9zYWxlcyBlbHNlICLwn4+3IEVuZyBrb+KAmHAgc290aWxnYW4ga2F0ZWdvcml5YTogaGFsaSBzb3R1diB5b+KAmHEiKSwKICAgICAgICBmIvCfjoEgQmVwdWwgeWV0a2F6aXNoZ2Ega2V0Z2FuOiDigql7ZnJlZV9kZWxpdmVyeV9jb3N0Oix9ICh7bGVuKGZyZWVfZGVsaXZlcnlfb3JkZXJzKX0gdGEgYnV5dXJ0bWEpIiwgIiIsCiAgICAgICAgIvCfj4YgVE9QIDEwIEtJVE9COiIKJwoKaWYgdGV4dC5jb3VudChvbGQyKSAhPSAxOgogICAgcmFpc2UgU3lzdGVtRXhpdChmIkV4cGVjdGVkIHJlcG9ydCBsaW5lcyBibG9jayBvbmNlLCBmb3VuZCB7dGV4dC5jb3VudChvbGQyKX0iKQp0ZXh0ID0gdGV4dC5yZXBsYWNlKG9sZDIsIG5ldzIsIDEpCnBhdGgud3JpdGVfdGV4dCh0ZXh0LCBlbmNvZGluZz0idXRmLTgiKQo="
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('bot.py')
-          text = path.read_text(encoding='utf-8')
-
-          old = '''    avg_order = revenue / len(successful) if successful else 0
-
-    sold = {}
-    customer_totals = {}
-    for o in successful:
-        cid = str(o.get("chat_id"))
-        customer_totals[cid] = customer_totals.get(cid, 0) + int(o.get("grand_total", 0))
-        for bid, qty in o.get("cart", {}).items():
-            sold[int(bid)] = sold.get(int(bid), 0) + int(qty)
-
-    top = sorted(sold.items(), key=lambda x: x[1], reverse=True)[:10]
-    top_customers = sorted(customer_totals.items(), key=lambda x: x[1], reverse=True)[:5]
-'''
-
-          new = '''    avg_order = revenue / len(successful) if successful else 0
-    free_delivery_orders = [
-        o for o in successful
-        if int(o.get("delivery_fee", DELIVERY_FEE)) == 0
-    ]
-    free_delivery_cost = len(free_delivery_orders) * int(DELIVERY_FEE)
-
-    sold = {}
-    category_sales = {}
-    customer_totals = {}
-    customer_order_counts = {}
-    for o in successful:
-        cid = str(o.get("chat_id"))
-        customer_totals[cid] = customer_totals.get(cid, 0) + int(o.get("grand_total", 0))
-        customer_order_counts[cid] = customer_order_counts.get(cid, 0) + 1
-        for bid, qty in o.get("cart", {}).items():
-            qty = int(qty)
-            sold[int(bid)] = sold.get(int(bid), 0) + qty
-            b = find_book(bid)
-            category = normalize_category(b.get("category")) if b else "Boshqalar"
-            category_sales[category] = category_sales.get(category, 0) + qty
-
-    top = sorted(sold.items(), key=lambda x: x[1], reverse=True)[:10]
-    top_customers = sorted(customer_totals.items(), key=lambda x: x[1], reverse=True)[:5]
-
-    if category_sales:
-        top_category_name, top_category_qty = max(category_sales.items(), key=lambda x: x[1])
-    else:
-        top_category_name, top_category_qty = "Hali sotuv yo‘q", 0
-
-    repeat_customers = sum(1 for count in customer_order_counts.values() if count >= 2)
-    unique_customers = len(customer_order_counts)
-    repeat_pct = (repeat_customers / unique_customers * 100) if unique_customers else 0
-
-    all_successful_after_reset = [
-        o for o in orders.values()
-        if int(o.get("order_id", 0) or 0) >= STATS_RESET_ORDER_ID
-        and o.get("status") in paid_statuses
-    ]
-    first_order_by_customer = {}
-    for o in all_successful_after_reset:
-        cid = str(o.get("chat_id"))
-        oid = int(o.get("order_id", 0) or 0)
-        if cid not in first_order_by_customer or oid < first_order_by_customer[cid]:
-            first_order_by_customer[cid] = oid
-
-    selected_success_ids = {int(o.get("order_id", 0) or 0) for o in successful}
-    new_customers = sum(
-        1 for oid in first_order_by_customer.values()
-        if oid in selected_success_ids
-    )
-'''
-
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected first statistics block once, found {text.count(old)}')
-          text = text.replace(old, new, 1)
-
-          old2 = '''        f"📈 O‘rtacha buyurtma: ₩{avg_order:,.0f}",
-        f"📚 Sotilgan kitoblar: {sum(sold.values())} dona", "",
-        "🏆 TOP 10 KITOB:"
-'''
-          new2 = '''        f"📈 O‘rtacha buyurtma: ₩{avg_order:,.0f}",
-        f"📚 Sotilgan kitoblar: {sum(sold.values())} dona",
-        f"👤 Yangi mijozlar: {new_customers} ta",
-        f"🔁 Qayta xarid qilganlar: {repeat_customers} ta ({repeat_pct:.1f}%)",
-        (f"🏷 Eng ko‘p sotilgan kategoriya: {top_category_name} — {top_category_qty} dona"
-         if category_sales else "🏷 Eng ko‘p sotilgan kategoriya: hali sotuv yo‘q"),
-        f"🎁 Bepul yetkazishga ketgan: ₩{free_delivery_cost:,} ({len(free_delivery_orders)} ta buyurtma)", "",
-        "🏆 TOP 10 KITOB:"
-'''
-
-          if text.count(old2) != 1:
-              raise SystemExit(f'Expected report lines block once, found {text.count(old2)}')
-          text = text.replace(old2, new2, 1)
-
-          path.write_text(text, encoding='utf-8')
-          PY
+          echo "$PATCH_B64" | base64 -d > /tmp/patch.py
+          python /tmp/patch.py
       - name: Syntax check
         run: python -m py_compile bot.py
       - name: Commit bot.py
