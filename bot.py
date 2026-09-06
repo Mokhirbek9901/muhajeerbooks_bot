@@ -562,6 +562,54 @@ def effective_price(book):
     return price
 
 
+def apply_global_discount(percent):
+    """Barcha kitoblarga berilgan foiz chegirmani qo‘llaydi."""
+    percent = int(percent)
+    if percent < 1 or percent > 99:
+        raise ValueError("Chegirma 1 dan 99 gacha bo‘lsin.")
+
+    changed = 0
+    for book in books:
+        price = int(book.get("price", 0) or 0)
+        if price <= 0:
+            continue
+
+        # Bir necha marta chegirma berilganda ustma-ust hisoblamaymiz.
+        if "global_discount_base_price" not in book:
+            book["global_discount_base_price"] = price
+            book["global_discount_old_price"] = int(book.get("old_price", 0) or 0)
+
+        base_price = int(book.get("global_discount_base_price", price) or price)
+        discounted = max(1, (base_price * (100 - percent)) // 100)
+        book["old_price"] = base_price
+        book["price"] = discounted
+        book["discount_percent"] = percent
+        changed += 1
+
+    save_books()
+    return changed
+
+
+def remove_global_discount():
+    """Global chegirmani bekor qilib, kitoblarni avvalgi narxlariga qaytaradi."""
+    changed = 0
+    for book in books:
+        if "global_discount_base_price" not in book:
+            continue
+
+        base_price = int(book.get("global_discount_base_price", book.get("price", 0)) or 0)
+        previous_old_price = int(book.get("global_discount_old_price", 0) or 0)
+        book["price"] = base_price
+        book["old_price"] = previous_old_price
+        book.pop("global_discount_base_price", None)
+        book.pop("global_discount_old_price", None)
+        book.pop("discount_percent", None)
+        changed += 1
+
+    save_books()
+    return changed
+
+
 def price_text(book):
     price = effective_price(book)
     old = int(book.get("old_price", 0) or 0)
@@ -913,6 +961,7 @@ def admin_menu():
             [{"text": "📚 Kitoblar ro‘yxati"}, {"text": "🔎 Kitob qidirish"}],
             [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
+            [{"text": "💸 Chegirma berish"}, {"text": "❌ Chegirmani bekor qilish"}],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
             [{"text": "🧪 Random xabarni sinash"}],
@@ -2045,6 +2094,28 @@ def handle_message(message):
 
             send(chat_id, "\n".join(lines), admin_menu())
             return
+        if text == "💸 Chegirma berish":
+            states[chat_id] = {"action": "global_discount"}
+            send(
+                chat_id,
+                "💸 Barcha kitoblarga necha foiz chegirma beramiz?\n\n"
+                "Masalan: 10, 20 yoki 25\n\n"
+                "❌ Bekor qilish uchun tugmani bosing.",
+                {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True}
+            )
+            return
+
+        if text == "❌ Chegirmani bekor qilish":
+            try:
+                changed = remove_global_discount()
+                if changed:
+                    send(chat_id, f"✅ Chegirma bekor qilindi. {changed} ta kitob avvalgi narxiga qaytarildi.", admin_menu())
+                else:
+                    send(chat_id, "ℹ️ Hozir global chegirma yo‘q.", admin_menu())
+            except Exception as e:
+                send(chat_id, f"❌ Chegirmani bekor qilib bo‘lmadi: {e}", admin_menu())
+            return
+
         if text == "➕ Kitob qo‘shish":
             states[chat_id] = {"action": "add_name"}
             send(
@@ -2082,6 +2153,28 @@ def handle_message(message):
 
         if state:
             action = state.get("action")
+
+            if action == "global_discount":
+                try:
+                    percent = int(text.replace("%", "").strip())
+                    if percent < 1 or percent > 99:
+                        raise ValueError
+                except ValueError:
+                    send(chat_id, "❌ Chegirma 1 dan 99 gacha bo‘lgan foiz bo‘lsin.\nMasalan: 20")
+                    return
+
+                try:
+                    changed = apply_global_discount(percent)
+                    states.pop(chat_id, None)
+                    send(
+                        chat_id,
+                        f"✅ {changed} ta kitobga {percent}% chegirma qo‘yildi.\n\n"
+                        "Mijozlarga narx eski narx → chegirmadagi narx ko‘rinishida chiqadi.",
+                        admin_menu()
+                    )
+                except Exception as e:
+                    send(chat_id, f"❌ Chegirma qo‘yilmadi: {e}", admin_menu())
+                return
 
             if action == "admin_search":
                 result = search_books(text)
