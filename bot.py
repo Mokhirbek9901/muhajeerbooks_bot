@@ -2198,7 +2198,7 @@ def handle_message(message):
             "Ma’lumotlaringizni tekshiring va buyurtmani tugatish uchun \
 "
             "«✅ Buyurtmani tasdiqlash» tugmasini bosing.\n\n"
-            "Tasdiqlaganingizdan so‘ng buyurtma admin tomonidan tekshiriladi va keyingi bosqichga o‘tadi.\n\n"
+            "Tasdiqlaganingizdan so‘ng buyurtma admin tomonidan tekshiriladi va buyurtma jo‘natish bosqichiga o‘tadi.\n\n"
             + preview + "\n\n" + order_customer_info_text(state)
             + "\n\nMa’lumotlarni tekshirib, buyurtmani tasdiqlang.",
             order_edit_keyboard(state)
