@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import os
@@ -5,11 +6,13 @@ import runpy
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 SYNC_SECRET = os.environ.get("SUPABASE_BOT_SYNC_SECRET", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 DATA_DIR = "/data" if os.path.isdir("/data") else "."
 BOOKS_FILE = os.path.join(DATA_DIR, "books.json")
 SYNC_INTERVAL = 5
@@ -66,6 +69,115 @@ def _push(local_books):
 def _pull_rows():
     result = _rpc("bot_sync_pull", {"p_secret": SYNC_SECRET})
     return result if isinstance(result, list) else []
+
+
+def _telegram_photo(file_id):
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN topilmadi")
+
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
+        data=urllib.parse.urlencode({"file_id": file_id}).encode("utf-8"),
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+
+    file_path = str((result.get("result") or {}).get("file_path") or "")
+    if not file_path:
+        raise RuntimeError("Telegram rasm fayli topilmadi")
+
+    url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+    with urllib.request.urlopen(url, timeout=60) as resp:
+        content = resp.read()
+
+    if not content:
+        raise RuntimeError("Telegramdan bo‘sh rasm keldi")
+    if len(content) > 7_000_000:
+        raise RuntimeError("Telegram rasmi 7 MB dan katta")
+
+    lower = file_path.lower()
+    if lower.endswith(".png"):
+        content_type = "image/png"
+        ext = "png"
+    elif lower.endswith(".webp"):
+        content_type = "image/webp"
+        ext = "webp"
+    else:
+        content_type = "image/jpeg"
+        ext = "jpg"
+
+    return content, f"telegram-cover.{ext}", content_type
+
+
+def _upload_telegram_cover(book_id, photo_id):
+    content, file_name, content_type = _telegram_photo(photo_id)
+    payload = {
+        "sync_secret": SYNC_SECRET,
+        "telegram_id": str(book_id),
+        "file_name": file_name,
+        "content_type": content_type,
+        "data_base64": base64.b64encode(content).decode("ascii"),
+    }
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/functions/v1/bot-cover-upload",
+        data=body,
+        headers={
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        raw = resp.read().decode("utf-8")
+        result = json.loads(raw) if raw else {}
+
+    url = str(result.get("url") or "")
+    if not url:
+        raise RuntimeError(str(result.get("error") or "Rasm Supabase'ga yuklanmadi"))
+    return url
+
+
+def _sync_telegram_covers(local_books):
+    """Telegramdagi photo_id bo‘yicha muqovani web uchun Supabase Storage'ga yuklaydi."""
+    if not (BOT_TOKEN and SUPABASE_URL and SUPABASE_ANON_KEY and SYNC_SECRET):
+        return False
+
+    changed = False
+    for book in local_books:
+        if not isinstance(book, dict):
+            continue
+
+        photo_id = str(book.get("photo_id") or "").strip()
+        image_url = str(book.get("image_url") or "").strip()
+        source_photo_id = str(book.get("web_photo_source_id") or "").strip()
+
+        if photo_id:
+            should_upload = not image_url or (source_photo_id and source_photo_id != photo_id)
+            if should_upload:
+                try:
+                    book_id = int(book.get("id") or 0)
+                    if book_id <= 0:
+                        continue
+                    new_url = _upload_telegram_cover(book_id, photo_id)
+                    book["image_url"] = new_url
+                    book["web_photo_source_id"] = photo_id
+                    image_url = new_url
+                    source_photo_id = photo_id
+                    changed = True
+                    print(f"Web muqova sinxronlandi: {book.get('name', book_id)}")
+                except Exception as e:
+                    print(f"Telegram muqova sync xatosi ({book.get('name', '')}):", e)
+        elif source_photo_id:
+            # Faqat Telegramdan avtomatik olingan rasm bo‘lsa, Telegramdagi rasm o‘chirilganda webdan ham olib tashlaymiz.
+            if "/book-covers/telegram/" in image_url:
+                book["image_url"] = ""
+            book["web_photo_source_id"] = ""
+            changed = True
+
+    return changed
 
 
 def _merge_cloud(local_books, rows):
@@ -136,6 +248,10 @@ def sync_loop():
         try:
             local = _read_books()
             current_hash = _hash(local)
+
+            if local and _sync_telegram_covers(local):
+                _write_books(local)
+                current_hash = _hash(local)
 
             if local and (first or current_hash != last_hash):
                 _push(local)
