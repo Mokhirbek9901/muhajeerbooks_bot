@@ -55,3 +55,5 @@ def start_http_server():
 if __name__ == "__main__":
     threading.Thread(target=start_http_server, daemon=True).start()
     bot.main()
+
+# migration trigger
