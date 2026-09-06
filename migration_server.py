@@ -52,8 +52,14 @@ def start_http_server():
     server.serve_forever()
 
 
+def export_catalog_to_logs():
+    bot.load_books()
+    print(f"MIGRATION_BOOK_COUNT={len(bot.books)}", flush=True)
+    for book in bot.books:
+        print("MIGRATION_BOOK_JSON=" + json.dumps(book, ensure_ascii=False), flush=True)
+
+
 if __name__ == "__main__":
+    export_catalog_to_logs()
     threading.Thread(target=start_http_server, daemon=True).start()
     bot.main()
-
-# migration trigger
