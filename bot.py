@@ -570,6 +570,22 @@ def book_rating(book_id):
     return sum(values) / len(values), len(values)
 
 
+def book_reviews(book_id, limit=2):
+    result = []
+    for item in reversed(list(ratings.values())):
+        review = item.get("reviews", {}).get(str(book_id))
+        if isinstance(review, dict):
+            review_text = str(review.get("text", "") or "").strip()
+            if review_text:
+                result.append({
+                    "name": str(review.get("name", "Mijoz") or "Mijoz"),
+                    "text": review_text[:150]
+                })
+        if len(result) >= limit:
+            break
+    return result
+
+
 def user_has_rated(chat_id, order_id, book_id):
     item = ratings.get(str(order_id), {})
     if str(item.get("chat_id")) != str(chat_id):
@@ -742,7 +758,12 @@ def order_receipt_text(order):
     delivery = int(order.get("delivery_fee", DELIVERY_FEE))
     discount = int(order.get("discount", 0))
     grand = int(order.get("grand_total", total + delivery - discount))
-    lines += ["", f"💰 Kitoblar: ₩{total:,}", f"🚚 Yetkazib berish: ₩{delivery:,}"]
+    lines += [
+        "",
+        f"💰 Kitoblar: ₩{total:,}",
+        f"🚚 Yetkazib berish: {delivery_text(delivery)}",
+        "⏱ Yetkazish muddati: 1–3 ish kuni"
+    ]
     if discount:
         lines.append(f"🎁 Chegirma: ₩{discount:,}")
     lines += [f"💵 JAMI: ₩{grand:,}", "", f"Holati: {status_name(order.get('status'))}"]
@@ -832,6 +853,12 @@ def book_detail_text(book):
         f"⭐ Reyting: {avg:.1f}/5 · {count} ta baho"
         if count else "⭐ Hali baholanmagan"
     )
+
+    reviews = book_reviews(book["id"])
+    if reviews:
+        lines.extend(["", "💬 MIJOZLAR FIKRI"])
+        for review in reviews:
+            lines.append(f"• {review['name']}: {review['text']}")
 
     if desc and desc != "Ma’lumot kiritilmagan.":
         lines.extend(["", "📝 KITOB HAQIDA", desc])
@@ -1180,7 +1207,7 @@ def saved_customer_info(chat_id):
     name = str(profile.get("saved_name", "") or "").strip()
     phone = str(profile.get("saved_phone", "") or "").strip()
     address = str(profile.get("saved_address", "") or "").strip()
-    if name and phone and address:
+    if name and phone and address and valid_phone_number(phone):
         return {"name": name, "phone": phone, "address": address}
     return None
 
@@ -1213,6 +1240,7 @@ def cart_text(chat_id):
         + "\n".join(lines)
         + f"\n\n💰 Kitoblar: ₩{total:,}"
         + f"\n🚚 Yetkazish: {delivery_text(fee)}"
+        + "\n⏱ Yetkazish muddati: 1–3 ish kuni"
         + f"\n💳 JAMI: ₩{grand_total:,}"
         + f"\n\n{delivery_note}"
     )
@@ -1387,6 +1415,7 @@ def order_preview_text(state, show_payment_info=True):
         + "\n".join(lines)
         + f"\n\n💰 Kitoblar: ₩{total:,}"
         + f"\n🚚 Yetkazib berish: {delivery_text(fee)}"
+        + "\n⏱ Yetkazish muddati: 1–3 ish kuni"
         + free_note
         + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}"
     )
@@ -1499,24 +1528,29 @@ def check_inactive_users(force=False):
         save_users()
 
 
+def valid_phone_number(value):
+    """Telefon raqamida 8–15 ta raqam bo‘lishini tekshiradi."""
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return 8 <= len(digits) <= 15
+
+
 def register_user(chat_id, user):
     key = str(chat_id)
     now = int(time.time())
     old = users.get(key, {})
+    profile = dict(old) if isinstance(old, dict) else {}
 
-    users[key] = {
+    # Telegram ma’lumotlarini yangilaymiz, buyurtmadan saqlangan ism,
+    # telefon va manzil kabi boshqa maydonlarni esa yo‘qotmaymiz.
+    profile.update({
         "chat_id": chat_id,
         "first_name": user.get("first_name", ""),
         "last_name": user.get("last_name", ""),
         "username": user.get("username", ""),
         "last_active": now,
         "inactive_message_sent": False
-    }
-
-    # Mijoz yana foydalansa, avvalgi 30 kunlik eslatma holatini tiklaymiz.
-    # Birinchi marta ko‘rinayotgan eski userlarda esa hozirgi vaqtni boshlang‘ich nuqta qilamiz.
-    if not old.get("last_active"):
-        users[key]["last_active"] = now
+    })
+    users[key] = profile
     save_users()
 
 
@@ -2159,11 +2193,38 @@ def handle_message(message):
         preview, _, _ = order_preview_text(state, show_payment_info=False)
         send(
             chat_id,
-            "✅ To‘lov cheki qabul qilindi.\n\n"
+            "📸 To‘lov cheki yuborildi.\n"
+            "⏳ To‘lov admin tomonidan tekshiriladi.\n\n"
             + preview + "\n\n" + order_customer_info_text(state)
             + "\n\nMa’lumotlarni tekshirib, buyurtmani tasdiqlang.",
             order_edit_keyboard(state)
         )
+        return
+
+    # =========================
+    # MIJOZ FIKRI
+    # =========================
+    if state and state.get("action") == "review_text" and text != "/start":
+        review_text = text.strip()
+        if len(review_text) < 2:
+            send(chat_id, "💬 Iltimos, fikringizni yozing yoki «Fikr yozmaslik»ni bosing.")
+            return
+        if len(review_text) > 150:
+            send(chat_id, "❌ Fikr 150 belgidan oshmasin. Qisqaroq yozing.")
+            return
+
+        order_id = str(state.get("order_id"))
+        book_id = str(state.get("book_id"))
+        profile = users.get(str(chat_id), {})
+        customer_name = str(profile.get("first_name", "") or "Mijoz")
+        item = ratings.setdefault(order_id, {"chat_id": chat_id, "ratings": {}})
+        item.setdefault("reviews", {})[book_id] = {
+            "name": customer_name,
+            "text": review_text
+        }
+        save_ratings()
+        states.pop(chat_id, None)
+        send(chat_id, "✅ Fikringiz uchun rahmat! U kitob sahifasida ko‘rinadi.", main_menu(chat_id))
         return
 
     # =========================
@@ -2953,6 +3014,14 @@ def handle_message(message):
     # =========================
 
     if state and state.get("action") == "order_phone":
+        if not valid_phone_number(text):
+            send(
+                chat_id,
+                "❌ Telefon raqami noto‘g‘ri.\n\n"
+                "8–15 ta raqamdan iborat telefon raqamingizni qayta yozing.\n"
+                "Masalan: 010-1234-5678"
+            )
+            return
         state["phone"] = text
         state["action"] = "order_address"
 
@@ -3009,6 +3078,13 @@ def handle_message(message):
             "edit_order_phone": "phone",
             "edit_order_address": "address"
         }[action]
+        if key == "phone" and not valid_phone_number(text):
+            send(
+                chat_id,
+                "❌ Telefon raqami noto‘g‘ri. 8–15 ta raqam bilan qayta yozing.\n"
+                "Masalan: 010-1234-5678"
+            )
+            return
         state[key] = text
 
         preview, total, grand = order_preview_text(
@@ -3773,9 +3849,27 @@ def handle_callback(callback):
         item = ratings.setdefault(str(order_id), {"chat_id": chat_id, "ratings": {}})
         item["ratings"][str(book_id)] = int(stars)
         save_ratings()
-        avg, count = book_rating(book_id)
-        send(chat_id, f"✅ {book['name']} uchun {stars}⭐ baho qabul qilindi.\n\n⭐ Hozirgi reyting: {avg:.1f}/5 ({count} ta baho)",
-             user_orders_keyboard(chat_id))
+        states[chat_id] = {
+            "action": "review_text",
+            "order_id": str(order_id),
+            "book_id": str(book_id),
+            "book_name": book["name"]
+        }
+        send(
+            chat_id,
+            f"✅ {book['name']} uchun {stars}⭐ baho qabul qilindi.\n\n"
+            "💬 Kitob haqida qisqa fikringizni yozing.",
+            {"inline_keyboard": [[
+                {"text": "⏭ Fikr yozmaslik", "callback_data": "review_skip"}
+            ]]}
+        )
+        return
+
+    if data == "review_skip":
+        state = states.get(chat_id)
+        if state and state.get("action") == "review_text":
+            states.pop(chat_id, None)
+        send(chat_id, "Rahmat! ⭐ Bahoyingiz saqlandi.", main_menu(chat_id))
         return
 
     # =========================
@@ -3833,6 +3927,7 @@ def handle_callback(callback):
             "━━━━━━━━━━━━━━\n"
             f"💰 Kitoblar narxi: ₩{books_total:,}\n"
             f"🚚 Yetkazib berish: {delivery_text(delivery_fee)}\n"
+            "⏱ Yetkazish muddati: 1–3 ish kuni\n"
             f"💳 JAMI TO‘LOV: ₩{grand_total:,}\n"
             "━━━━━━━━━━━━━━\n"
             f"{delivery_note}\n\n"
@@ -3889,7 +3984,12 @@ def handle_callback(callback):
         order["status"] = "delivered"
         save_orders()
         send(chat_id, f"✅ Zakaz №{order_id} yetkazildi deb belgilandi.", admin_menu())
-        send(order["chat_id"], f"✅ Zakaz №{order_id} yetkazildi deb belgilandi.\n\nRahmat! ❤️", main_menu(order["chat_id"]))
+        send(
+            order["chat_id"],
+            f"✅ Zakaz №{order_id} yetkazildi deb belgilandi.\n\n"
+            "Rahmat! ❤️ «📜 Mening buyurtmalarim» bo‘limida kitobga baho va fikr qoldirishingiz mumkin.",
+            main_menu(order["chat_id"])
+        )
         return
 
     # =========================
