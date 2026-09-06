@@ -1,0 +1,21 @@
+name: Full quick stock names
+on:
+  push:
+    paths: ['.github/full-stock-names.trigger']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: main}
+      - run: python .github/full-stock-names.py
+      - run: python -m py_compile bot.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/full-stock-names.py .github/full-stock-names.trigger .github/workflows/full-stock-names.yml
+          git add bot.py .github
+          git commit -m "Show full book names in quick stock"
+          git push origin main
