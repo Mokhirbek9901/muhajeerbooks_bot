@@ -1,0 +1,26 @@
+name: Admin features v2
+on:
+  push:
+    paths:
+      - '.github/admin-features-v2.trigger'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch bot
+        run: python .github/admin_features_v2.py
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Commit bot and clean temporary files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/admin_features_v2.py .github/admin-features-v2.trigger .github/workflows/admin-features-v2.yml
+          git add bot.py .github
+          git commit -m "Add admin stock, cost and profit tools"
+          git push origin main
