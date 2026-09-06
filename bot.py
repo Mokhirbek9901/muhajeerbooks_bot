@@ -1190,30 +1190,46 @@ def saved_customer_info(chat_id):
 def cart_text(chat_id):
     cart = carts.get(chat_id, {})
     if not cart:
-        return "🛒 Savatcha bo‘sh."
+        return (
+            "🛒 SAVATCHANGIZ\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "Hozircha savatchangiz bo‘sh."
+        )
+
     lines = []
     total = 0
+    item_number = 0
     for book_id, qty in cart.items():
         book = find_book(book_id)
         if not book:
             continue
-        subtotal = effective_price(book) * int(qty)
+        item_number += 1
+        unit_price = effective_price(book)
+        subtotal = unit_price * int(qty)
         total += subtotal
-        lines.append(f"📖 {book['name']} × {qty} = ₩{subtotal:,}")
+        lines.append(
+            f"{item_number}. 📖 {book['name']}\n"
+            f"   {qty} ta × ₩{unit_price:,} = ₩{subtotal:,}"
+        )
+
     fee = delivery_fee_for_cart(cart)
     grand_total = total + fee
-    bonus = (
-        "\n🎁 Aksiya qo‘llandi: 4 ta yoki undan ko‘p kitob — yetkazib berish bepul!"
-        if fee == 0
-        else "\nℹ️ 4 ta yoki undan ko‘p kitob xarid qilsangiz, yetkazib berish bepul."
-    )
+    if fee == 0:
+        delivery_note = "🎁 4+ kitob aksiyasi qo‘llandi — yetkazib berish BEPUL!"
+    else:
+        delivery_note = "ℹ️ 4 ta yoki undan ko‘p kitob olsangiz, yetkazib berish bepul."
+
     return (
-        "🛒 Savatchangiz:\n\n"
-        + "\n".join(lines)
-        + f"\n\n💰 Kitoblar jami: ₩{total:,}"
+        "🛒 SAVATCHANGIZ\n"
+        "━━━━━━━━━━━━━━\n\n"
+        + "\n\n".join(lines)
+        + "\n\n━━━━━━━━━━━━━━"
+        + f"\n💰 Kitoblar jami: ₩{total:,}"
         + f"\n🚚 Yetkazib berish: {delivery_text(fee)}"
-        + bonus
-        + f"\n💵 JAMI TO‘LOV: ₩{grand_total:,}"
+        + f"\n\n{delivery_note}"
+        + "\n━━━━━━━━━━━━━━"
+        + f"\n💳 JAMI TO‘LOV: ₩{grand_total:,}"
+        + "\n\nQuyidagi tugmalardan birini tanlang 👇"
     )
 
 
@@ -1223,7 +1239,7 @@ def cart_keyboard(chat_id):
     if not cart:
         return {
             "inline_keyboard": [
-                [{"text": "📚 Kitoblar", "callback_data": "books"}],
+                [{"text": "➕ Kitob qo‘shish", "callback_data": "books"}],
                 [{"text": "🏠 Bosh menyu", "callback_data": "home"}]
             ]
         }
@@ -1232,34 +1248,30 @@ def cart_keyboard(chat_id):
 
     for book_id, qty in list(cart.items()):
         book = find_book(book_id)
-
         if not book:
             continue
 
-        stock = int(book.get("stock", 0))
-
+        buttons.append([
+            {"text": f"📖 {book['name']}", "callback_data": "cart_noop"}
+        ])
         buttons.append([
             {"text": "➖", "callback_data": f"cartminus_{book_id}"},
             {"text": f"{qty} ta", "callback_data": "cart_noop"},
             {"text": "➕", "callback_data": f"cartplus_{book_id}"},
         ])
-
         buttons.append([
-            {"text": f"🗑 {book['name']}ni o‘chirish",
+            {"text": "🗑 Shu kitobni olib tashlash",
              "callback_data": f"cartdelete_{book_id}"}
         ])
 
     buttons.append([
-        {"text": "🗑 Barchasini tozalash", "callback_data": "cartclear"}
+        {"text": "➕ Yana kitob qo‘shish", "callback_data": "books"}
     ])
-
-    # Savatchaning o‘zidan turib buyurtmani boshlash.
     buttons.append([
-        {"text": "📦 Zakaz berish", "callback_data": "cart_order"}
+        {"text": "✅ Buyurtma berish", "callback_data": "cart_order"}
     ])
-
     buttons.append([
-        {"text": "📚 Kitoblar", "callback_data": "books"},
+        {"text": "🗑 Savatni tozalash", "callback_data": "cartclear"},
         {"text": "🏠 Bosh menyu", "callback_data": "home"}
     ])
 
