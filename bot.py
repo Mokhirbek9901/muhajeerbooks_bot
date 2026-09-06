@@ -3350,12 +3350,11 @@ def handle_callback(callback):
         state = states.get(chat_id)
         if not state or state.get("action") != "confirm_saved_info":
             return
-        state["action"] = "order_saved_address"
-        send(
-            chat_id,
-            "📍 Yangi manzil va xona raqamini to‘liq yozing.\n\n"
-            "Masalan: 경상북도 경산시 계양로 37길 7-3, 808호"
-        )
+        state.pop("name", None)
+        state.pop("phone", None)
+        state.pop("address", None)
+        state["action"] = "order_name"
+        send(chat_id, "📝 Yangi buyurtma uchun ismingizni yozing:")
         return
 
     # =========================
