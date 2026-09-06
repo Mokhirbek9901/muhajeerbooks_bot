@@ -1,0 +1,25 @@
+name: Full book edit
+on:
+  push:
+    paths: ['.github/full-book-edit.trigger']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch bot
+        run: python .github/full_book_edit.py
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Commit bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Improve book edit menu and add full edit flow"
+          git push origin main
