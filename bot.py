@@ -951,7 +951,6 @@ def order_edit_keyboard(state=None):
              {"text": "📱 Telefon", "callback_data": "orderedit_phone"}],
             [{"text": "📍 Manzilni tahrirlash", "callback_data": "orderedit_address"}],
             [{"text": "✅ Buyurtmani tasdiqlash", "callback_data": "order_confirm_cb"}],
-            [{"text": "❌ Bekor qilish", "callback_data": "order_cancel_cb"}],
         ]
     }
 
