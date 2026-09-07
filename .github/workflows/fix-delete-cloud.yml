@@ -21,11 +21,12 @@ jobs:
         run: |
           python -m py_compile bot.py cloud_bridge.py sync_wrapper.py
           grep -q 'cloud_bridge.delete_book(book)' bot.py
+          ! grep -q 'for tid in sorted(last_book_ids - current_ids)' sync_wrapper.py
       - name: Commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add bot.py
+          git add bot.py sync_wrapper.py
           git diff --cached --quiet && exit 0
-          git commit -m "Delete books atomically across bot and app"
+          git commit -m "Prevent accidental catalog deletion during sync"
           git push origin main
