@@ -547,16 +547,8 @@ def sync_loop():
                     _push_books(unsynced)
             else:
                 current_ids = _book_ids(local)
-                for tid in sorted(last_book_ids - current_ids):
-                    try:
-                        _rpc("bot_sync_delete", {
-                            "p_secret": SYNC_SECRET,
-                            "p_telegram_id": tid,
-                            "p_cloud_id": None,
-                        })
-                        print(f"Bot → ilova kitob o‘chirildi: telegram_id={tid}")
-                    except Exception as e:
-                        print(f"Bot delete sync xatosi ({tid}):", e)
+                # O‘chirishni local ro‘yxatdagi farqdan taxmin qilmaymiz.
+                # Botdagi haqiqiy delete cloud_bridge.delete_book(book) orqali atomik bajariladi.
 
                 changed = []
                 for book in local:
