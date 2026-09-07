@@ -9,6 +9,17 @@ import cloud_bridge
 
 from datetime import datetime, timedelta
 
+
+def _local_datetime(raw):
+    """ISO vaqtni timezone aralashmasidan xoli, taqqoslanadigan local datetimega aylantiradi."""
+    value = str(raw or '').strip()
+    if value.endswith('Z'):
+        value = value[:-1] + '+00:00'
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt
+
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 ADMIN_ID = os.environ.get("ADMIN_ID", "").strip()
 
@@ -664,7 +675,7 @@ def add_postage_expense(amount):
 def postage_expense_for_period(period="all"):
     load_expenses(); now=datetime.now(); total=0
     for date_key, items in expenses.items():
-        try: day=datetime.fromisoformat(str(date_key)).date()
+        try: day=_local_datetime(str(date_key)).date()
         except Exception: continue
         include = period=="all" or (period=="today" and day==now.date()) or (period=="week" and day >= (now-timedelta(days=7)).date()) or (period=="month" and day.year==now.year and day.month==now.month)
         if include and isinstance(items,list):
@@ -1358,7 +1369,7 @@ def new_books_keyboard():
     def key(b):
         raw = b.get("created_at", "")
         try:
-            return datetime.fromisoformat(raw)
+            return _local_datetime(raw)
         except Exception:
             return datetime.min
     items = sorted(books, key=key, reverse=True)[:10]
@@ -1599,7 +1610,7 @@ def daily_admin_report_text():
     load_orders(); load_users(); now=datetime.now(); successful=[]
     for o in orders.values():
         if int(o.get("order_id",0) or 0)<STATS_RESET_ORDER_ID: continue
-        try: dt=datetime.fromisoformat(o.get("created_at",""))
+        try: dt=_local_datetime(o.get("created_at",""))
         except Exception: continue
         if dt.date()==now.date() and o.get("status") in ("paid","shipped","delivered"): successful.append(o)
     revenue=sum(int(o.get("grand_total",0) or 0) for o in successful); books_revenue=sum(int(o.get("total",0) or 0) for o in successful); delivery_revenue=sum(int(o.get("delivery_fee",DELIVERY_FEE) or 0) for o in successful); sold_qty=sum(sum(int(q) for q in o.get("cart",{}).values()) for o in successful)
@@ -1985,7 +1996,7 @@ def admin_report_text(period="all"):
             return True
         raw = o.get("created_at", "")
         try:
-            dt = datetime.fromisoformat(raw)
+            dt = _local_datetime(raw)
         except Exception:
             return False
         if period == "today":
