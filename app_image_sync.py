@@ -216,3 +216,5 @@ if all((SUPABASE_URL, SUPABASE_ANON_KEY, SYNC_SECRET, BOT_TOKEN, ADMIN_ID)):
     threading.Thread(target=_loop, daemon=True, name="app-cover-to-telegram-sync").start()
 else:
     print("Ilova → Telegram rasm sync uchun environment variablelar yetishmaydi.")
+
+# Railway deploy trigger.
