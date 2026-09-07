@@ -4168,6 +4168,11 @@ def handle_callback(callback):
         book = find_book(book_id)
 
         if book:
+            try:
+                cloud_bridge.delete_book(book)
+            except Exception as e:
+                send(chat_id, f"❌ Kitob o‘chirilmadi: {e}", admin_menu())
+                return
             books.remove(book)
             save_books()
 
