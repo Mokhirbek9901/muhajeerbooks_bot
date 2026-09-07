@@ -1,0 +1,40 @@
+name: Repair live sync runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/fix_sync_runtime.py'
+      - '.github/workflows/fix_sync_runtime.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply repair
+        run: python3 tools/fix_sync_runtime.py
+      - name: Python syntax check
+        run: python3 -m py_compile bot.py sync_wrapper.py cloud_bridge.py
+      - name: Runtime name sanity
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('sync_wrapper.py').read_text(encoding='utf-8')
+          for bad in ('_sync_telegram_covers(', '_write_books(', '_push(', '_pull_rows(', '_import_unsynced_orders('):
+              assert bad not in s, bad
+          assert '_push_books(' in s and '_pull_books(' in s and '_merge_books(' in s
+          assert 'str(order.get("source") or "telegram") == "app"' in s
+          print('runtime sync names OK')
+          PY
+      - name: Commit repair and cleanup
+        run: |
+          rm -f tools/fix_sync_runtime.py .github/workflows/fix_sync_runtime.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py sync_wrapper.py tools/fix_sync_runtime.py .github/workflows/fix_sync_runtime.yml
+          git commit -m "Repair unified live synchronization runtime"
+          git push
