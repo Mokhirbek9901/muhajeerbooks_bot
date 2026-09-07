@@ -64,3 +64,19 @@ def set_order_status(order, status):
             "p_order_number": order_number,
         },
     )
+
+
+def delete_book(book):
+    cloud_id = str(book.get("cloud_id") or "").strip() or None
+    try:
+        telegram_id = int(book.get("id") or 0)
+    except Exception:
+        telegram_id = None
+    return rpc(
+        "bot_sync_delete",
+        {
+            "p_secret": SYNC_SECRET,
+            "p_telegram_id": telegram_id if telegram_id and telegram_id > 0 else None,
+            "p_cloud_id": cloud_id,
+        },
+    )
