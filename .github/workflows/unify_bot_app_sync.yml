@@ -1,0 +1,31 @@
+name: Unify bot and app sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/unify_bot_app_sync.yml'
+      - 'tools/unify_bot_app_patch.py'
+      - 'cloud_bridge.py'
+      - 'sync_wrapper.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply unified sync patch
+        run: python3 tools/unify_bot_app_patch.py
+      - name: Syntax check
+        run: python3 -m py_compile bot.py sync_wrapper.py cloud_bridge.py
+      - name: Commit production sync fix
+        run: |
+          rm -f .github/workflows/unify_bot_app_sync.yml tools/unify_bot_app_patch.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py sync_wrapper.py cloud_bridge.py .github/workflows/unify_bot_app_sync.yml tools/unify_bot_app_patch.py
+          git commit -m "Unify bot app books images orders and stock"
+          git push
