@@ -194,7 +194,7 @@ def sync_once(state):
     if overrides:
         books = _rows_to_bot_books(rows, overrides)
         if books:
-            _rpc("bot_sync_push", {"p_secret": SYNC_SECRET, "p_books": books})
+            _rpc("bot_sync_push_safe", {"p_secret": SYNC_SECRET, "p_books": books})
             print(f"Telegram rasmlari katalogga yozildi: {len(overrides)} ta")
 
     if touched:
