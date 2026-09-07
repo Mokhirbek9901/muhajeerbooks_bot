@@ -2402,9 +2402,9 @@ def recommender_result(chat_id, interest, style):
 
 
 def handle_message(message):
-    # Har bir yangi xabarda books.json dan eng yangi ombor holatini yuklaymiz.
-    # Shu sabab admin qoldiqni o'zgartirgach, boshqa foydalanuvchilar ham yangi sonni ko'radi.
+    # Har bir yangi xabarda kitoblar va buyurtmalarning eng yangi cloud nusxasini o'qiymiz.
     load_books()
+    load_orders()
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
 
@@ -3624,8 +3624,9 @@ def handle_message(message):
 # =========================
 
 def handle_callback(callback):
-    # Callback kelganda ham omborning eng yangi holatini yuklaymiz.
+    # Callback kelganda ham kitoblar va buyurtmalarning eng yangi holatini yuklaymiz.
     load_books()
+    load_orders()
     callback_id = callback["id"]
     message = callback.get("message", {})
     chat = message.get("chat", {})
