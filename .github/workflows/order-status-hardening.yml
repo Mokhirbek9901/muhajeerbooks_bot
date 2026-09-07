@@ -1,0 +1,41 @@
+name: Accepted order status hardening
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'order_status_hardening.py'
+      - '.github/workflows/order-status-hardening.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply accepted-order patch
+        run: python3 order_status_hardening.py
+      - name: Syntax check
+        run: python3 -m py_compile bot.py sync_wrapper.py cloud_bridge.py app_image_sync.py
+      - name: Sanity checks
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('bot.py').read_text(encoding='utf-8')
+          assert '"accepted": "📦 Qabul qilingan"' in s
+          assert 'adminorders_accepted' in s
+          assert 'order.get("status") not in ("pending", "accepted")' in s
+          segment=s[s.index('def admin_order_status_keyboard'):s.index('def finalize_order')]
+          assert 'elif status == "accepted":' in segment
+          print('accepted order status sanity OK')
+          PY
+      - name: Commit patch and cleanup
+        run: |
+          rm -f order_status_hardening.py .github/workflows/order-status-hardening.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py order_status_hardening.py .github/workflows/order-status-hardening.yml
+          git commit -m "Handle accepted app orders safely in Telegram"
+          git push
