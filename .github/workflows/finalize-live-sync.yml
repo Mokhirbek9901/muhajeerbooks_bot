@@ -1,0 +1,42 @@
+name: Finalize live sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/finalize-live-sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply final synchronization repair
+        run: python3 tools/finalize_sync.py
+
+      - name: Syntax check
+        run: |
+          python3 -m py_compile bot.py sync_wrapper.py cloud_bridge.py
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path('sync_wrapper.py').read_text(encoding='utf-8')
+          assert '_sync_app_images_to_telegram(rows, last_cloud_rows)' in s
+          assert 'bot_order_create' in s
+          assert 'bot_sync_delete' in s
+          print('sync syntax and sanity checks passed')
+          PY
+
+      - name: Commit production repair
+        run: |
+          rm -f .github/workflows/finalize-live-sync.yml tools/finalize_sync.py .github/workflows/fix-live-sync.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize reliable bot app synchronization"
+          git push
