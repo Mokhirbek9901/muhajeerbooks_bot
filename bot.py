@@ -2128,6 +2128,7 @@ def admin_orders_keyboard(status_filter="all"):
     counts = admin_order_counts()
     buttons = [
         [{"text": f"🟡 Kutilmoqda ({counts['pending']})", "callback_data": "adminorders_pending"}],
+        [{"text": f"📦 Qabul qilingan ({counts['accepted']})", "callback_data": "adminorders_accepted"}],
         [{"text": f"🚚 Jo‘natilgan ({counts['shipped']})", "callback_data": "adminorders_shipped"}],
         [{"text": f"📦 Hammasi ({len(orders)})", "callback_data": "adminorders_all"}],
     ]
@@ -4658,7 +4659,7 @@ def handle_callback(callback):
         if not order:
             send(chat_id, "❌ Zakaz topilmadi.")
             return
-        if order.get("status") != "pending":
+        if order.get("status") not in ("pending", "accepted"):
             send(chat_id, "⚠️ Bu zakaz allaqachon qayta ishlangan.")
             return
         try:
