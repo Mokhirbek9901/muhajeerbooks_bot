@@ -953,6 +953,7 @@ def order_receipt_text(order):
 def status_name(status):
     return {
         "pending": "🟡 To‘lov kutilmoqda",
+        "accepted": "📦 Buyurtma qabul qilingan",
         "paid": "🟢 To‘lov tasdiqlangan",
         "shipped": "🚚 Jo‘natildi",
         "delivered": "✅ Yetkazildi",
@@ -1946,7 +1947,7 @@ def rating_keyboard(order_id, book_id):
 
 
 ORDER_STATUS_NAMES = {
-    "pending": "🟡 Kutilmoqda", "paid": "🟢 To‘langan",
+    "pending": "🟡 Kutilmoqda", "accepted": "📦 Qabul qilingan", "paid": "🟢 To‘langan",
     "shipped": "🚚 Jo‘natilgan", "delivered": "✅ Yetkazilgan",
     "cancelled": "❌ Bekor qilingan", "stock_problem": "⚠️ Ombor muammosi"
 }
@@ -2145,6 +2146,9 @@ def admin_order_detail(order):
 def admin_order_status_keyboard(order_id, status):
     buttons=[]
     if status == "pending":
+        buttons.append([{ "text":"💳 To‘lov qilindi", "callback_data":f"paid_{order_id}" }])
+        buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
+    elif status == "accepted":
         buttons.append([{ "text":"💳 To‘lov qilindi", "callback_data":f"paid_{order_id}" }])
         buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
     elif status == "paid":
@@ -4607,7 +4611,7 @@ def handle_callback(callback):
         if not order:
             send(chat_id, "❌ Zakaz topilmadi.")
             return
-        if order.get("status") != "pending":
+        if order.get("status") not in ("pending", "accepted"):
             send(chat_id, "⚠️ Bu zakaz allaqachon qayta ishlangan.")
             return
         try:
