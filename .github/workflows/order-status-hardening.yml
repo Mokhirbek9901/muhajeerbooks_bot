@@ -38,4 +38,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bot.py order_status_hardening.py .github/workflows/order-status-hardening.yml
           git commit -m "Handle accepted app orders safely in Telegram"
+          git pull --rebase origin main
           git push
