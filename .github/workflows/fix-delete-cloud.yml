@@ -1,0 +1,31 @@
+name: Harden bot book deletion
+
+on:
+  push:
+    paths:
+      - '.github/fix-delete-cloud.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch deletion
+        run: python .github/fix_delete_cloud.py
+      - name: Check
+        run: |
+          python -m py_compile bot.py cloud_bridge.py sync_wrapper.py
+          grep -q 'cloud_bridge.delete_book(book)' bot.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Delete books atomically across bot and app"
+          git push origin main
