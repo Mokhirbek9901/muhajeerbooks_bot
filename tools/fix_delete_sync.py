@@ -1,0 +1,136 @@
+from pathlib import Path
+
+p = Path('sync_wrapper.py')
+s = p.read_text(encoding='utf-8')
+s = s.replace(
+    'return _rpc("bot_sync_push", {"p_secret": SYNC_SECRET, "p_books": local_books})',
+    'return _rpc("bot_sync_push_safe", {"p_secret": SYNC_SECRET, "p_books": local_books})',
+)
+
+start = s.index('def sync_loop():')
+end = s.index('\n\nif SUPABASE_URL', start)
+new_loop = '''def _book_ids(items):
+    result = set()
+    for book in items:
+        if not isinstance(book, dict):
+            continue
+        try:
+            tid = int(book.get("id") or 0)
+        except Exception:
+            continue
+        if tid > 0:
+            result.add(tid)
+    return result
+
+
+def _has_unmapped_rows(rows):
+    for row in rows:
+        if isinstance(row, dict) and row.get("telegram_id") is None:
+            return True
+    return False
+
+
+def sync_loop():
+    last_hash = None
+    last_ids = set()
+    initialized = False
+
+    while True:
+        try:
+            local = _read_books()
+            current_hash = _hash(local)
+
+            if local and _sync_telegram_covers(local):
+                _write_books(local)
+                current_hash = _hash(local)
+
+            if not initialized:
+                unsynced = [
+                    b for b in local
+                    if isinstance(b, dict) and not str(b.get("cloud_id") or "").strip()
+                ]
+                if unsynced:
+                    _push(unsynced)
+
+                rows = _pull_rows()
+                cloud_local = _merge_cloud(local, rows)
+                if _hash(cloud_local) != current_hash:
+                    _write_books(cloud_local)
+                    local = cloud_local
+                    current_hash = _hash(local)
+
+                if local and _has_unmapped_rows(rows):
+                    _push(local)
+                    rows = _pull_rows()
+                    cloud_local = _merge_cloud(local, rows)
+                    if _hash(cloud_local) != current_hash:
+                        _write_books(cloud_local)
+                        local = cloud_local
+                        current_hash = _hash(local)
+
+                last_hash = current_hash
+                last_ids = _book_ids(local)
+                initialized = True
+                time.sleep(SYNC_INTERVAL)
+                continue
+
+            local_ids = _book_ids(local)
+            deleted_ids = sorted(last_ids - local_ids)
+
+            for tid in deleted_ids:
+                try:
+                    _rpc(
+                        "bot_sync_delete",
+                        {
+                            "p_secret": SYNC_SECRET,
+                            "p_telegram_id": tid,
+                            "p_cloud_id": None,
+                        },
+                    )
+                    print(f"Bot → ilova kitob o‘chirildi: telegram_id={tid}")
+                except Exception as e:
+                    print(f"Bot delete sync xatosi ({tid}):", e)
+
+            if local and current_hash != last_hash:
+                _push(local)
+
+            rows = _pull_rows()
+            cloud_local = _merge_cloud(local, rows)
+            if _hash(cloud_local) != current_hash:
+                _write_books(cloud_local)
+                local = cloud_local
+                current_hash = _hash(local)
+
+            if local and _has_unmapped_rows(rows):
+                _push(local)
+                rows = _pull_rows()
+                cloud_local = _merge_cloud(local, rows)
+                if _hash(cloud_local) != current_hash:
+                    _write_books(cloud_local)
+                    local = cloud_local
+                    current_hash = _hash(local)
+
+            last_hash = current_hash
+            last_ids = _book_ids(local)
+
+        except urllib.error.HTTPError as e:
+            try:
+                details = e.read().decode("utf-8")
+            except Exception:
+                details = str(e)
+            print("Supabase sync HTTP xatosi:", e.code, details)
+        except Exception as e:
+            print("Supabase sync xatosi:", e)
+
+        time.sleep(SYNC_INTERVAL)
+'''
+s = s[:start] + new_loop + s[end:]
+p.write_text(s, encoding='utf-8')
+
+p2 = Path('app_image_sync.py')
+s2 = p2.read_text(encoding='utf-8')
+s2 = s2.replace(
+    '_rpc("bot_sync_push", {"p_secret": SYNC_SECRET, "p_books": books})',
+    '_rpc("bot_sync_push_safe", {"p_secret": SYNC_SECRET, "p_books": books})',
+)
+p2.write_text(s2, encoding='utf-8')
