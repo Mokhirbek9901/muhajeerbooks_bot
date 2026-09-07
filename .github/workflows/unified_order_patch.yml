@@ -17,7 +17,7 @@ jobs:
       - name: Apply order patch
         run: python3 tools/unified_order_patch.py
       - name: Syntax check
-        run: python3 -m py_compile bot.py sync_wrapper.py
+        run: python3 -m py_compile bot.py sync_wrapper.py cloud_bridge.py
       - name: Commit patch
         run: |
           rm .github/workflows/unified_order_patch.yml
