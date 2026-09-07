@@ -395,8 +395,6 @@ def _cloud_order_to_bot(row, books_by_uuid, existing=None):
             cart[str(tid)] = qty
 
     linked_chat = int(row.get("telegram_chat_id") or existing.get("chat_id") or 0)
-    if linked_chat <= 0 and ADMIN_ID:
-        linked_chat = int(ADMIN_ID)
 
     existing.update(
         {
@@ -510,31 +508,28 @@ def _book_fingerprint(book):
 
 def sync_loop():
     initialized = False
-    seen_order_ids = set()
+    last_books = []
     last_book_ids = set()
     last_book_fingerprints = {}
+    last_orders = {}
+    seen_cloud_orders = set()
 
     while True:
         try:
-            # -------------------------
-            # BOOKS — ikki tomonlama, conflict-safe sync
-            # -------------------------
+            # BOOKS — botdagi faqat haqiqiy o'zgarish push bo'ladi; cloud oxirgi manba.
             local = _read_books()
-            if local and _sync_telegram_covers(local):
-                _write_books(local)
+            if initialized and _prepare_bot_image_changes(local, last_books):
+                _write_json(BOOKS_FILE, local)
 
             if not initialized:
-                # Faqat hali cloud_id olmagan eski/local kitoblar bir marta yuboriladi.
                 unsynced = [
                     b for b in local
                     if isinstance(b, dict) and not str(b.get("cloud_id") or "").strip()
                 ]
                 if unsynced:
-                    _push(unsynced)
+                    _push_books(unsynced)
             else:
                 current_ids = _book_ids(local)
-
-                # Botdan o'chirilgan kitob — clouddan ham o'chadi.
                 for tid in sorted(last_book_ids - current_ids):
                     try:
                         _rpc(
@@ -545,8 +540,6 @@ def sync_loop():
                     except Exception as e:
                         print(f"Bot delete sync xatosi ({tid}):", e)
 
-                # MUHIM: butun local katalogni push qilmaymiz.
-                # Faqat botda oldingi sikldan beri haqiqatan o'zgargan/yangi kitoblar yuboriladi.
                 changed = []
                 for book in local:
                     if not isinstance(book, dict):
@@ -557,89 +550,109 @@ def sync_loop():
                         continue
                     if tid <= 0:
                         continue
-                    fp = _book_fingerprint(book)
-                    if last_book_fingerprints.get(tid) != fp:
+                    if last_book_fingerprints.get(tid) != _book_fingerprint(book):
                         changed.append(book)
                 if changed:
-                    _push(changed)
+                    _push_books(changed)
 
-            # Cloud holati doim yakuniy merge bosqichi bo'ladi.
-            rows = _pull_rows()
-            cloud_local = _merge_cloud(local, rows)
-            if _hash(cloud_local) != _hash(local):
-                _write_books(cloud_local)
-                local = cloud_local
-            else:
-                local = cloud_local
+            rows = _pull_books()
+            # Appdan yangi rasm kelsa Telegram file_id ham tayyorlanadi.
+            if _sync_app_images_to_telegram(rows):
+                rows = _pull_books()
 
-            last_book_ids = _book_ids(local)
+            merged, unmapped = _merge_books(local, rows)
+            if unmapped:
+                _push_unmapped_books(merged, unmapped)
+                rows = _pull_books()
+                merged, _ = _merge_books(merged, rows)
+
+            if _hash(merged) != _hash(local):
+                _write_json(BOOKS_FILE, merged)
+
+            last_books = [dict(b) for b in merged]
+            last_book_ids = _book_ids(merged)
             last_book_fingerprints = {
                 int(b.get("id")): _book_fingerprint(b)
-                for b in local
+                for b in merged
                 if isinstance(b, dict) and str(b.get("id") or "").isdigit()
             }
 
-            # -------------------------
-            # ORDERS — Supabase yagona markaziy baza
-            # -------------------------
+            # ORDERS — Supabase yagona markaz. App orderlari botdan qayta push qilinmaydi.
             local_orders = _read_orders()
-
-            # Cloudga hali yozilmagan eski/yangi Telegram buyurtmalarini retry qilamiz.
-            if _import_unsynced_orders(local_orders):
-                _write_orders(local_orders)
+            if not initialized:
+                for order in local_orders.values():
+                    if (
+                        isinstance(order, dict)
+                        and str(order.get("source") or "telegram") != "app"
+                    ):
+                        try:
+                            _push_order(order)
+                        except Exception as e:
+                            print("Eski bot buyurtmasi sync xatosi:", e)
+            else:
+                for key, order in local_orders.items():
+                    if not isinstance(order, dict):
+                        continue
+                    if str(order.get("source") or "telegram") == "app":
+                        continue
+                    prev = last_orders.get(str(key))
+                    if prev is None or _hash(order) != _hash(prev):
+                        try:
+                            _push_order(order)
+                        except Exception as e:
+                            print(f"Buyurtma sync xatosi ({key}):", e)
 
             cloud_orders = _pull_orders()
             books_by_uuid = {
                 str(b.get("id")): b for b in rows if isinstance(b, dict)
             }
-
             current_cloud_ids = {
                 str(r.get("id"))
                 for r in cloud_orders
                 if isinstance(r, dict) and r.get("id")
             }
             if not initialized:
-                # Restart paytida eski app buyurtmalariga notification yog'ilib ketmasin.
-                seen_order_ids = set(current_cloud_ids)
+                seen_cloud_orders = set(current_cloud_ids)
 
             latest_local = _read_orders()
             merged_orders = dict(latest_local)
             new_app_orders = []
-
             for row in cloud_orders:
                 if not isinstance(row, dict):
                     continue
-                raw_number = row.get("telegram_order_id") or row.get("order_number")
                 try:
-                    key = str(int(raw_number))
+                    key = str(int(row.get("telegram_order_id") or 0))
                 except Exception:
                     continue
-
-                merged = _cloud_order_to_bot(row, books_by_uuid, latest_local.get(key))
-                if merged is None:
+                if key == "0":
                     continue
-                merged_orders[key] = merged
-
+                item = _cloud_order_to_bot(row, books_by_uuid, latest_local.get(key))
+                if item is None:
+                    continue
+                merged_orders[key] = item
                 cloud_id = str(row.get("id") or "")
                 if (
                     initialized
                     and cloud_id
-                    and cloud_id not in seen_order_ids
+                    and cloud_id not in seen_cloud_orders
                     and str(row.get("source") or "app") == "app"
                 ):
-                    new_app_orders.append(merged)
+                    new_app_orders.append(item)
 
             if _hash(merged_orders) != _hash(latest_local):
-                _write_orders(merged_orders)
+                _write_json(ORDERS_FILE, merged_orders)
 
             for order in new_app_orders:
                 try:
                     _notify_admin_app_order(order)
-                    print(f"Ilova → bot yangi buyurtma: {order.get('order_id')}")
+                    print(f"Ilova → bot buyurtma: {order.get('order_id')}")
                 except Exception as e:
-                    print("Ilova buyurtmasi admin notification xatosi:", e)
+                    print("Ilova buyurtma notification xatosi:", e)
 
-            seen_order_ids.update(current_cloud_ids)
+            seen_cloud_orders.update(current_cloud_ids)
+            last_orders = {
+                str(k): dict(v) for k, v in merged_orders.items() if isinstance(v, dict)
+            }
             initialized = True
 
         except urllib.error.HTTPError as e:

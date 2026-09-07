@@ -1066,8 +1066,10 @@ def book_detail_keyboard(book, chat_id):
 def send_book_detail(chat_id, book):
     text = book_detail_text(book)
     markup = book_detail_keyboard(book, chat_id)
-    # Telegramdagi file_id bo'lsa undan, programmadan yuklangan rasm bo'lsa public URLdan foydalanamiz.
-    photo = str(book.get("photo_id", "") or book.get("image_url", "") or "").strip()
+    image_url = str(book.get("image_url", "") or "").strip()
+    photo_id = str(book.get("photo_id", "") or "").strip()
+    # Cloudga ulangan kitobda image_url rasmning yagona haqiqiy manbasi.
+    photo = image_url if str(book.get("cloud_id", "") or "").strip() else (image_url or photo_id)
     if photo:
         try:
             api("sendPhoto", {"chat_id": chat_id, "photo": photo, "caption": text, "reply_markup": json.dumps(markup, ensure_ascii=False)})
@@ -1701,7 +1703,7 @@ def send_inactive_message(chat_id):
         b for b in books
         if int(b.get("stock", 0)) > 0
         and int(b.get("price", 0)) > 0
-        and (str(b.get("photo_id", "")).strip() or str(b.get("image_url", "")).strip())
+        and (str(b.get("image_url", "")).strip() if str(b.get("cloud_id", "")).strip() else (str(b.get("image_url", "")).strip() or str(b.get("photo_id", "")).strip()))
     ]
 
     text = random.choice(INACTIVE_MESSAGES)
@@ -1714,7 +1716,7 @@ def send_inactive_message(chat_id):
                 "sendPhoto",
                 {
                     "chat_id": chat_id,
-                    "photo": str(book.get("photo_id", "") or book.get("image_url", "")),
+                    "photo": (str(book.get("image_url", "") or "").strip() if str(book.get("cloud_id", "") or "").strip() else str(book.get("image_url", "") or book.get("photo_id", "") or "").strip()),
                     "caption": text,
                     "reply_markup": json.dumps(markup, ensure_ascii=False)
                 }
