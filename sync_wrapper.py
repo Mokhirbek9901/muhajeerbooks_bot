@@ -13,9 +13,11 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 SYNC_SECRET = os.environ.get("SUPABASE_BOT_SYNC_SECRET", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+ADMIN_ID = os.environ.get("ADMIN_ID", "").strip()
 DATA_DIR = "/data" if os.path.isdir("/data") else "."
 BOOKS_FILE = os.path.join(DATA_DIR, "books.json")
-SYNC_INTERVAL = 5
+ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
+SYNC_INTERVAL = 2
 
 
 def _rpc(name, payload):
@@ -37,22 +39,40 @@ def _rpc(name, payload):
         return json.loads(raw) if raw else None
 
 
-def _read_books():
+def _read_json(path, default):
     try:
-        with open(BOOKS_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, list) else []
+        return data
     except Exception:
-        return []
+        return default
 
 
-def _write_books(data):
-    tmp = BOOKS_FILE + ".cloud.tmp"
+def _write_json(path, data):
+    tmp = path + ".cloud.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp, BOOKS_FILE)
+    os.replace(tmp, path)
+
+
+def _read_books():
+    data = _read_json(BOOKS_FILE, [])
+    return data if isinstance(data, list) else []
+
+
+def _write_books(data):
+    _write_json(BOOKS_FILE, data)
+
+
+def _read_orders():
+    data = _read_json(ORDERS_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _write_orders(data):
+    _write_json(ORDERS_FILE, data)
 
 
 def _hash(data):
@@ -71,10 +91,14 @@ def _pull_rows():
     return result if isinstance(result, list) else []
 
 
+def _pull_orders():
+    result = _rpc("bot_orders_pull", {"p_secret": SYNC_SECRET})
+    return result if isinstance(result, list) else []
+
+
 def _telegram_photo(file_id):
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN topilmadi")
-
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
         data=urllib.parse.urlencode({"file_id": file_id}).encode("utf-8"),
@@ -82,32 +106,22 @@ def _telegram_photo(file_id):
     )
     with urllib.request.urlopen(request, timeout=30) as resp:
         result = json.loads(resp.read().decode("utf-8"))
-
     file_path = str((result.get("result") or {}).get("file_path") or "")
     if not file_path:
         raise RuntimeError("Telegram rasm fayli topilmadi")
-
     url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
     with urllib.request.urlopen(url, timeout=60) as resp:
         content = resp.read()
-
     if not content:
         raise RuntimeError("Telegramdan bo‘sh rasm keldi")
     if len(content) > 7_000_000:
         raise RuntimeError("Telegram rasmi 7 MB dan katta")
-
     lower = file_path.lower()
     if lower.endswith(".png"):
-        content_type = "image/png"
-        ext = "png"
-    elif lower.endswith(".webp"):
-        content_type = "image/webp"
-        ext = "webp"
-    else:
-        content_type = "image/jpeg"
-        ext = "jpg"
-
-    return content, f"telegram-cover.{ext}", content_type
+        return content, "telegram-cover.png", "image/png"
+    if lower.endswith(".webp"):
+        return content, "telegram-cover.webp", "image/webp"
+    return content, "telegram-cover.jpg", "image/jpeg"
 
 
 def _upload_telegram_cover(book_id, photo_id):
@@ -133,7 +147,6 @@ def _upload_telegram_cover(book_id, photo_id):
     with urllib.request.urlopen(req, timeout=90) as resp:
         raw = resp.read().decode("utf-8")
         result = json.loads(raw) if raw else {}
-
     url = str(result.get("url") or "")
     if not url:
         raise RuntimeError(str(result.get("error") or "Rasm Supabase'ga yuklanmadi"))
@@ -141,19 +154,16 @@ def _upload_telegram_cover(book_id, photo_id):
 
 
 def _sync_telegram_covers(local_books):
-    """Telegramdagi photo_id bo‘yicha muqovani web uchun Supabase Storage'ga yuklaydi."""
+    """Telegram photo_id -> Supabase public image URL."""
     if not (BOT_TOKEN and SUPABASE_URL and SUPABASE_ANON_KEY and SYNC_SECRET):
         return False
-
     changed = False
     for book in local_books:
         if not isinstance(book, dict):
             continue
-
         photo_id = str(book.get("photo_id") or "").strip()
         image_url = str(book.get("image_url") or "").strip()
         source_photo_id = str(book.get("web_photo_source_id") or "").strip()
-
         if photo_id:
             should_upload = not image_url or (source_photo_id and source_photo_id != photo_id)
             if should_upload:
@@ -164,58 +174,39 @@ def _sync_telegram_covers(local_books):
                     new_url = _upload_telegram_cover(book_id, photo_id)
                     book["image_url"] = new_url
                     book["web_photo_source_id"] = photo_id
-                    image_url = new_url
-                    source_photo_id = photo_id
                     changed = True
-                    print(f"Web muqova sinxronlandi: {book.get('name', book_id)}")
+                    print(f"Telegram → ilova rasm: {book.get('name', book_id)}")
                 except Exception as e:
                     print(f"Telegram muqova sync xatosi ({book.get('name', '')}):", e)
         elif source_photo_id:
-            # Faqat Telegramdan avtomatik olingan rasm bo‘lsa, Telegramdagi rasm o‘chirilganda webdan ham olib tashlaymiz.
             if "/book-covers/telegram/" in image_url:
                 book["image_url"] = ""
             book["web_photo_source_id"] = ""
             changed = True
-
     return changed
 
 
 def _merge_cloud(local_books, rows):
     existing = {str(b.get("id")): dict(b) for b in local_books if isinstance(b, dict)}
-    used_ids = set()
-    for b in local_books:
-        try:
-            used_ids.add(int(b.get("id")))
-        except Exception:
-            pass
-    next_id = max(used_ids, default=0) + 1
     merged = []
-
     for row in rows:
         if not isinstance(row, dict):
             continue
-        tid = row.get("telegram_id")
-        if tid is None:
-            while next_id in used_ids:
-                next_id += 1
-            tid = next_id
-            used_ids.add(tid)
-            next_id += 1
         try:
-            tid = int(tid)
+            tid = int(row.get("telegram_id") or 0)
         except Exception:
             continue
-
+        if tid <= 0:
+            continue
         current = existing.get(str(tid), {}).copy()
         base_price = max(0, int(row.get("price") or 0))
         discount = max(0, min(99, int(row.get("discount_percent") or 0)))
         sale_price = round(base_price * (100 - discount) / 100) if discount else base_price
         old_price = base_price if discount else 0
-
         if int(current.get("price", sale_price) or 0) != sale_price or int(current.get("old_price", old_price) or 0) != old_price:
             current.pop("global_discount_base_price", None)
             current.pop("global_discount_old_price", None)
-
+        # Appdan rasm kelganda image_url doim saqlanadi. Bot sendPhoto URLni ham qabul qiladi.
         current.update({
             "id": tid,
             "cloud_id": str(row.get("id") or ""),
@@ -236,7 +227,6 @@ def _merge_cloud(local_books, rows):
             "created_at": str(row.get("created_at") or current.get("created_at") or ""),
         })
         merged.append(current)
-
     merged.sort(key=lambda x: int(x.get("id", 0)))
     return merged
 
@@ -255,95 +245,221 @@ def _book_ids(items):
     return result
 
 
-def _has_unmapped_rows(rows):
-    for row in rows:
-        if isinstance(row, dict) and row.get("telegram_id") is None:
-            return True
-    return False
+def _order_status_to_bot(status):
+    return {
+        "new": "pending",
+        "accepted": "paid",
+        "paid": "paid",
+        "shipping": "shipped",
+        "done": "delivered",
+        "cancelled": "cancelled",
+    }.get(str(status), "pending")
+
+
+def _cloud_order_to_bot(row, books_by_uuid, existing=None):
+    existing = dict(existing or {})
+    try:
+        order_number = int(row.get("telegram_order_id") or row.get("order_number") or 0)
+    except Exception:
+        return None
+    if order_number <= 0:
+        return None
+    items = []
+    cart = {}
+    for item in row.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        book_uuid = str(item.get("book_id") or "")
+        book = books_by_uuid.get(book_uuid, {})
+        try:
+            tid = int(book.get("telegram_id") or 0)
+        except Exception:
+            tid = 0
+        qty = max(1, int(item.get("quantity") or item.get("qty") or 1))
+        unit_price = max(0, int(item.get("unit_price") or item.get("price") or 0))
+        name = str(item.get("title") or book.get("title") or "Kitob")
+        item_data = {
+            "book_id": str(tid) if tid > 0 else book_uuid,
+            "name": name,
+            "qty": qty,
+            "unit_price": unit_price,
+            "unit_cost": max(0, int(book.get("cost_price") or 0)),
+        }
+        items.append(item_data)
+        if tid > 0:
+            cart[str(tid)] = qty
+    existing.update({
+        "order_id": str(order_number),
+        "cloud_order_id": str(row.get("id") or ""),
+        "source": str(row.get("source") or "app"),
+        "chat_id": int(row.get("telegram_chat_id") or existing.get("chat_id") or 0),
+        "username": str(row.get("telegram_username") or existing.get("username") or ""),
+        "name": str(row.get("customer_name") or ""),
+        "phone": str(row.get("phone") or ""),
+        "address": str(row.get("address") or ""),
+        "cart": cart,
+        "items": items,
+        "total": int(row.get("subtotal") or 0),
+        "delivery_fee": int(row.get("delivery_fee") or 0),
+        "grand_total": int(row.get("total") or 0),
+        "discount": 0,
+        "status": _order_status_to_bot(row.get("status")),
+        "payment_declared": bool(row.get("payment_submitted_at") or row.get("telegram_receipt_file_id")),
+        "receipt_file_id": str(row.get("telegram_receipt_file_id") or existing.get("receipt_file_id") or ""),
+        "payment_proof_path": str(row.get("payment_proof_path") or ""),
+        "created_at": str(row.get("created_at") or existing.get("created_at") or ""),
+    })
+    return existing
+
+
+def _import_unsynced_orders(local_orders):
+    changed = False
+    for key, order in list(local_orders.items()):
+        if not isinstance(order, dict):
+            continue
+        if str(order.get("cloud_order_id") or "").strip():
+            continue
+        if str(order.get("source") or "telegram") == "app":
+            continue
+        try:
+            result = _rpc(
+                "bot_order_create",
+                {"p_secret": SYNC_SECRET, "p_order": order, "p_preserve_stock": True},
+            )
+            if isinstance(result, dict) and result.get("id"):
+                order["cloud_order_id"] = str(result.get("id"))
+                order["source"] = "telegram"
+                local_orders[str(key)] = order
+                changed = True
+        except Exception as e:
+            print(f"Eski bot buyurtmasini cloudga ko‘chirish xatosi ({key}):", e)
+    return changed
+
+
+def _telegram_send(chat_id, text, reply_markup=None):
+    if not (BOT_TOKEN and chat_id):
+        return
+    data = {"chat_id": str(chat_id), "text": text}
+    if reply_markup is not None:
+        data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data=urllib.parse.urlencode(data).encode("utf-8"),
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        resp.read()
+
+
+def _notify_admin_app_order(order):
+    if not ADMIN_ID:
+        return
+    lines = []
+    for item in order.get("items") or []:
+        lines.append(f"• {item.get('name','Kitob')} × {int(item.get('qty',1))} = ₩{int(item.get('unit_price',0))*int(item.get('qty',1)):,}")
+    text = (
+        f"📱 PROGRAMMADAN YANGI BUYURTMA №{order.get('order_id')}\n\n"
+        f"👤 {order.get('name','—')}\n"
+        f"📱 {order.get('phone','—')}\n"
+        f"📍 {order.get('address','—')}\n\n"
+        "📚 KITOBLAR:\n" + ("\n".join(lines) if lines else "• Ma’lumot yo‘q") +
+        f"\n\n🚚 Yetkazib berish: ₩{int(order.get('delivery_fee',0)):,}"
+        f"\n💵 JAMI: ₩{int(order.get('grand_total',0)):,}"
+    )
+    kb = {"inline_keyboard": [[{"text": "📦 Buyurtmani ochish", "callback_data": f"adminorder_{order.get('order_id')}"}]]}
+    _telegram_send(ADMIN_ID, text, kb)
 
 
 def sync_loop():
     last_hash = None
     last_ids = set()
     initialized = False
+    seen_order_ids = set()
 
     while True:
         try:
+            # BOOKS: bot va app uchun bitta Supabase katalog.
             local = _read_books()
             current_hash = _hash(local)
-
             if local and _sync_telegram_covers(local):
                 _write_books(local)
                 current_hash = _hash(local)
 
             if not initialized:
-                unsynced = [
-                    b for b in local
-                    if isinstance(b, dict) and not str(b.get("cloud_id") or "").strip()
-                ]
+                unsynced = [b for b in local if isinstance(b, dict) and not str(b.get("cloud_id") or "").strip()]
                 if unsynced:
                     _push(unsynced)
-
                 rows = _pull_rows()
                 cloud_local = _merge_cloud(local, rows)
                 if _hash(cloud_local) != current_hash:
                     _write_books(cloud_local)
                     local = cloud_local
                     current_hash = _hash(local)
-
-                if local and _has_unmapped_rows(rows):
-                    _push(local)
-                    rows = _pull_rows()
-                    cloud_local = _merge_cloud(local, rows)
-                    if _hash(cloud_local) != current_hash:
-                        _write_books(cloud_local)
-                        local = cloud_local
-                        current_hash = _hash(local)
-
                 last_hash = current_hash
                 last_ids = _book_ids(local)
-                initialized = True
-                time.sleep(SYNC_INTERVAL)
-                continue
-
-            local_ids = _book_ids(local)
-            deleted_ids = sorted(last_ids - local_ids)
-
-            for tid in deleted_ids:
-                try:
-                    _rpc(
-                        "bot_sync_delete",
-                        {
-                            "p_secret": SYNC_SECRET,
-                            "p_telegram_id": tid,
-                            "p_cloud_id": None,
-                        },
-                    )
-                    print(f"Bot → ilova kitob o‘chirildi: telegram_id={tid}")
-                except Exception as e:
-                    print(f"Bot delete sync xatosi ({tid}):", e)
-
-            if local and current_hash != last_hash:
-                _push(local)
-
-            rows = _pull_rows()
-            cloud_local = _merge_cloud(local, rows)
-            if _hash(cloud_local) != current_hash:
-                _write_books(cloud_local)
-                local = cloud_local
-                current_hash = _hash(local)
-
-            if local and _has_unmapped_rows(rows):
-                _push(local)
+            else:
+                local_ids = _book_ids(local)
+                deleted_ids = sorted(last_ids - local_ids)
+                for tid in deleted_ids:
+                    try:
+                        _rpc("bot_sync_delete", {"p_secret": SYNC_SECRET, "p_telegram_id": tid, "p_cloud_id": None})
+                        print(f"Bot → ilova kitob o‘chirildi: telegram_id={tid}")
+                    except Exception as e:
+                        print(f"Bot delete sync xatosi ({tid}):", e)
+                if local and current_hash != last_hash:
+                    _push(local)
                 rows = _pull_rows()
                 cloud_local = _merge_cloud(local, rows)
                 if _hash(cloud_local) != current_hash:
                     _write_books(cloud_local)
                     local = cloud_local
                     current_hash = _hash(local)
+                last_hash = current_hash
+                last_ids = _book_ids(local)
 
-            last_hash = current_hash
-            last_ids = _book_ids(local)
+            # ORDERS: Supabase authoritative; Telegramdagi eski buyurtmalar bir marta import qilinadi.
+            local_orders = _read_orders()
+            if _import_unsynced_orders(local_orders):
+                _write_orders(local_orders)
+            cloud_orders = _pull_orders()
+            books_rows = rows if isinstance(rows, list) else _pull_rows()
+            books_by_uuid = {str(b.get("id")): b for b in books_rows if isinstance(b, dict)}
+
+            # Birinchi siklda mavjud buyurtmalar notification bermaydi.
+            current_cloud_ids = {str(r.get("id")) for r in cloud_orders if isinstance(r, dict) and r.get("id")}
+            if not initialized:
+                seen_order_ids = set(current_cloud_ids)
+
+            latest_local = _read_orders()
+            merged_orders = dict(latest_local)
+            new_app_orders = []
+            for row in cloud_orders:
+                if not isinstance(row, dict):
+                    continue
+                raw_number = row.get("telegram_order_id") or row.get("order_number")
+                try:
+                    key = str(int(raw_number))
+                except Exception:
+                    continue
+                merged = _cloud_order_to_bot(row, books_by_uuid, latest_local.get(key))
+                if merged is None:
+                    continue
+                merged_orders[key] = merged
+                cloud_id = str(row.get("id") or "")
+                if initialized and cloud_id and cloud_id not in seen_order_ids and str(row.get("source") or "app") == "app":
+                    new_app_orders.append(merged)
+
+            if _hash(merged_orders) != _hash(latest_local):
+                _write_orders(merged_orders)
+
+            for order in new_app_orders:
+                try:
+                    _notify_admin_app_order(order)
+                    print(f"Ilova → bot yangi buyurtma: {order.get('order_id')}")
+                except Exception as e:
+                    print("Ilova buyurtmasi admin notification xatosi:", e)
+            seen_order_ids.update(current_cloud_ids)
+            initialized = True
 
         except urllib.error.HTTPError as e:
             try:
@@ -358,9 +474,8 @@ def sync_loop():
 
 
 if SUPABASE_URL and SUPABASE_ANON_KEY and SYNC_SECRET:
-    threading.Thread(target=sync_loop, daemon=True, name="supabase-books-sync").start()
+    threading.Thread(target=sync_loop, daemon=True, name="supabase-live-sync").start()
 else:
     print("Supabase sync environment variablelari topilmadi; bot odatdagi rejimda ishlaydi.")
 
-# Railway production starts from this wrapper so bot va ilova bitta katalogdan foydalanadi.
 runpy.run_path("bot.py", run_name="__main__")
