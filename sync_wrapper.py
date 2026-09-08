@@ -9,7 +9,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -95,7 +95,10 @@ def _parse_iso(value):
     if text.endswith('Z'):
         text = text[:-1] + '+00:00'
     try:
-        return datetime.fromisoformat(text)
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
     except Exception:
         return None
 
