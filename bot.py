@@ -4645,12 +4645,21 @@ def handle_callback(callback):
         refresh_books()
         book = find_book(book_id)
         if not book:
-            send(
-                chat_id,
-                "ℹ️ Bu eski tugma. Kitob allaqachon o‘chirilgan yoki ro‘yxat yangilangan.\n"
-                "Kitoblar ro‘yxatini qayta oching.",
-                admin_menu()
-            )
+            # Eski Telegram inline xabari katalog emas. Kitob allaqachon o‘chirilgan
+            # bo‘lsa, o‘sha eski xabarning tugmalarini ham olib tashlaymiz.
+            try:
+                edit_message(
+                    chat_id,
+                    message.get("message_id"),
+                    "🗑 Bu kitob allaqachon o‘chirilgan.\n\n✅ Eski tugma ham tozalandi.",
+                    {"inline_keyboard": []}
+                )
+            except Exception:
+                send(
+                    chat_id,
+                    "ℹ️ Bu eski tugma. Kitob allaqachon o‘chirilgan yoki ro‘yxat yangilangan.",
+                    admin_menu()
+                )
             return
 
         try:
