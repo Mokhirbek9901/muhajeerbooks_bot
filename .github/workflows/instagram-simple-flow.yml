@@ -1,0 +1,35 @@
+name: Instagram simple flow
+
+on:
+  push:
+    paths:
+      - '.github/instagram-simple-flow.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply patch
+        run: python .github/instagram-simple-flow.py
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Verify flow
+        run: |
+          grep -q 'if action == "instagram_amount"' bot.py
+          grep -q 'Pochtani mijoz to‘ladi' bot.py
+          grep -q 'Mijozdan olgan JAMI summani' bot.py
+      - name: Commit and clean temporary files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/instagram-simple-flow.py .github/workflows/instagram-simple-flow.yml .github/instagram-simple-flow.trigger
+          git add -A
+          git commit -m "Simplify Instagram sale entry" || exit 0
+          git push origin main
