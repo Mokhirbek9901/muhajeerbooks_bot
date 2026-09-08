@@ -131,7 +131,7 @@ def instagram_sale_items_text(cart, sale_prices=None):
 
 
 '''
-t2, n = re.subn(pattern, replacement, t, count=1, flags=re.S)
+t2, n = re.subn(pattern, lambda m: replacement, t, count=1, flags=re.S)
 if n != 1:
     raise RuntimeError(f"Instagram parser block topilmadi: {n}")
 t = t2
@@ -259,7 +259,7 @@ state_new = '''            if action == "instagram_items":
                 return
 
 '''
-t2, n = re.subn(state_pat, state_new, t, count=1, flags=re.S)
+t2, n = re.subn(state_pat, lambda m: state_new, t, count=1, flags=re.S)
 if n != 1:
     raise RuntimeError(f"Instagram state block topilmadi: {n}")
 t = t2
