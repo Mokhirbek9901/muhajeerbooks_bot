@@ -1,0 +1,30 @@
+name: Fix Instagram admin postage accounting
+on:
+  push:
+    paths:
+      - '.github/fix-instagram-admin-postage.trigger'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Apply patch
+        run: python .github/fix-instagram-admin-postage.py
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Verify fix
+        run: |
+          grep -F "books_total = max(0, received_total - int(DELIVERY_FEE))" bot.py
+          grep -F "books_amount = max(0, received - int(DELIVERY_FEE))" bot.py
+      - name: Commit and clean temporary files
+        run: |
+          rm -f .github/fix-instagram-admin-postage.py .github/workflows/fix-instagram-admin-postage.yml .github/fix-instagram-admin-postage.trigger
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py .github
+          git commit -m "Count admin-paid postage outside book sales"
+          git push origin main
