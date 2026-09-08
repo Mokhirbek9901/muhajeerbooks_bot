@@ -38,7 +38,7 @@ RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 EXPENSES_FILE = os.path.join(DATA_DIR, "expenses.json")
 BOOK_IMPORT_MARKER = os.path.join(DATA_DIR, "books_import_20260906_v1.done")
 LOW_STOCK_LIMIT = 2
-STATS_RESET_ORDER_ID = 1788693321000  # 2026-09-06 16:15:21 Asia/Tashkent
+STATS_RESET_ORDER_ID = 1788893918395  # 2026-09-08 final production reset
 
 # =========================
 # FAOL BO'LMAGAN MIJOZLAR
@@ -143,7 +143,7 @@ favorites = {}
 ratings = {}
 restock_subscribers = {}
 expenses = {}
-ORDER_HISTORY_RESET_MARKER = os.path.join(DATA_DIR, "order_history_reset_20260908_v1.done")
+ORDER_HISTORY_RESET_MARKER = os.path.join(DATA_DIR, "order_history_reset_20260908_v2.done")
 if not os.path.exists(ORDER_HISTORY_RESET_MARKER):
     tmp_orders = ORDERS_FILE + ".history_reset.tmp"
     with open(tmp_orders, "w", encoding="utf-8") as f:
@@ -151,6 +151,12 @@ if not os.path.exists(ORDER_HISTORY_RESET_MARKER):
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp_orders, ORDERS_FILE)
+    tmp_ratings = RATINGS_FILE + ".history_reset.tmp"
+    with open(tmp_ratings, "w", encoding="utf-8") as f:
+        json.dump({}, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_ratings, RATINGS_FILE)
     marker_tmp = ORDER_HISTORY_RESET_MARKER + ".tmp"
     with open(marker_tmp, "w", encoding="utf-8") as f:
         f.write(datetime.now().isoformat() + "\n")
@@ -308,11 +314,35 @@ def restore_backup_file(path):
 
     if is_data or is_legacy:
         load_expenses()
+        raw_orders = data.get("orders", {})
+        if not isinstance(raw_orders, dict):
+            raw_orders = {}
+        restored_orders = {}
+        for key, value in raw_orders.items():
+            if not isinstance(value, dict):
+                continue
+            try:
+                oid = int(value.get("order_id", key) or 0)
+            except Exception:
+                oid = 0
+            if oid >= STATS_RESET_ORDER_ID:
+                restored_orders[str(key)] = value
+        raw_ratings = data.get("ratings", {})
+        if not isinstance(raw_ratings, dict):
+            raw_ratings = {}
+        restored_order_ids = {
+            str(v.get("order_id", k)) for k, v in restored_orders.items()
+            if isinstance(v, dict)
+        }
+        restored_ratings = {
+            str(k): v for k, v in raw_ratings.items()
+            if str(k) in restored_order_ids
+        }
         payloads.update({
-            ORDERS_FILE: data.get("orders", {}),
+            ORDERS_FILE: restored_orders,
             USERS_FILE: data.get("users", {}),
             FAVORITES_FILE: data.get("favorites", {}),
-            RATINGS_FILE: data.get("ratings", {}),
+            RATINGS_FILE: restored_ratings,
             RESTOCK_FILE: data.get("restock_subscribers", {}),
             EXPENSES_FILE: data.get("expenses", expenses),
         })
@@ -929,7 +959,7 @@ def notify_restock(book):
 def best_sellers():
     sold = {}
     for o in orders.values():
-        if o.get("status") in ("shipped", "delivered"):
+        if o.get("status") == "shipped":
             for bid, qty in o.get("cart", {}).items():
                 try:
                     sold[int(bid)] = sold.get(int(bid), 0) + int(qty)
@@ -1684,7 +1714,7 @@ def daily_admin_report_text():
         if int(o.get("order_id",0) or 0)<STATS_RESET_ORDER_ID: continue
         try: dt=_local_datetime(o.get("created_at",""))
         except Exception: continue
-        if dt.date()==now.date() and o.get("status") in ("paid","shipped","delivered"): successful.append(o)
+        if dt.date()==now.date() and o.get("status") == "shipped": successful.append(o)
     revenue=sum(_order_report_total(o) for o in successful); books_revenue=sum(_order_report_books(o) for o in successful); delivery_revenue=sum(_order_report_delivery(o) for o in successful); sold_qty=sum(sum(int(q) for q in o.get("cart",{}).values()) for o in successful)
     cost_of_goods=0; missing_cost_qty=0
     for o in successful:
@@ -2011,6 +2041,7 @@ def user_orders_text(chat_id):
     lines = ["📜 BUYURTMALARIM\n"]
     status_names = {
         "pending": "🟡 To‘lov kutilmoqda",
+        "accepted": "📦 Buyurtma qabul qilingan",
         "paid": "🟢 To‘lov tasdiqlangan",
         "shipped": "🚚 Jo‘natildi",
         "delivered": "🚚 Jo‘natildi",
@@ -2030,7 +2061,7 @@ def user_orders_keyboard(chat_id):
     mine = [o for o in orders.values() if int(o.get("chat_id", -1)) == int(chat_id)]
     buttons = []
     for o in sorted(mine, key=lambda x: int(x.get("order_id", 0)), reverse=True)[:20]:
-        if o.get("status") == "delivered":
+        if o.get("status") == "shipped":
             for bid, qty in o.get("cart", {}).items():
                 b = find_book(bid)
                 if b and not user_has_rated(chat_id, o.get("order_id"), bid):
@@ -2105,7 +2136,7 @@ def admin_report_text(period="all"):
         return True
 
     selected = [o for o in orders.values() if included(o) and int(o.get("order_id", 0) or 0) >= STATS_RESET_ORDER_ID]
-    paid_statuses = ("shipped", "delivered")
+    paid_statuses = ("shipped",)
     successful = [o for o in selected if o.get("status") in paid_statuses]
 
     pending = sum(1 for o in selected if o.get("status") == "pending")
@@ -2473,30 +2504,6 @@ def save_instagram_sale(state):
     if not cart:
         raise ValueError("Kitoblar tanlanmagan.")
 
-    by_id = {str(b.get("id")): b for b in books}
-    for bid, qty in cart.items():
-        b = by_id.get(str(bid))
-        if not b:
-            raise ValueError(f"Kitob topilmadi: ID {bid}")
-        if int(b.get("stock", 0)) < int(qty):
-            raise ValueError(f"{b.get('name')} omborda yetarli emas. Hozir {int(b.get('stock',0))} ta.")
-
-    items = []
-    for bid, qty in cart.items():
-        b = by_id[str(bid)]
-        items.append({
-            "book_id": str(bid),
-            "name": str(b.get("name", "Kitob")),
-            "qty": int(qty),
-            "unit_price": int(effective_price(b)),
-            "unit_cost": int(b.get("cost_price", 0) or 0)
-        })
-
-    # Ombor faqat barcha tekshiruvlardan keyin o‘zgaradi.
-    for bid, qty in cart.items():
-        by_id[str(bid)]["stock"] = int(by_id[str(bid)].get("stock", 0)) - int(qty)
-    save_books()
-
     received_total = int(state.get("received_total", 0) or 0)
     if received_total <= 0:
         raise ValueError("Mijozdan olingan jami summa kiritilmagan.")
@@ -2506,11 +2513,37 @@ def save_instagram_sale(state):
     if customer_pays_postage and received_total < delivery_fee:
         raise ValueError("Jami summa pochta pulidan kam bo‘lishi mumkin emas.")
 
-    books_total = max(0, received_total - int(DELIVERY_FEE))
+    # Admin pochta to'lasa, mijozdan olingan summa to'liq kitob savdosi.
+    # Mijoz pochta to'lasa, faqat o'sha 4,000 won ajratiladi.
+    books_total = max(0, received_total - delivery_fee)
     grand_total = received_total
 
+    by_id = {str(b.get("id")): b for b in books}
+    for bid, qty in cart.items():
+        if qty <= 0:
+            raise ValueError("Kitob soni noto‘g‘ri.")
+        book = by_id.get(str(bid))
+        if not book:
+            raise ValueError(f"Kitob topilmadi: ID {bid}")
+        if int(book.get("stock", 0)) < int(qty):
+            raise ValueError(
+                f"{book.get('name')} omborda yetarli emas. "
+                f"Hozir {int(book.get('stock', 0))} ta."
+            )
+
+    items = []
+    for bid, qty in cart.items():
+        book = by_id[str(bid)]
+        items.append({
+            "book_id": str(bid),
+            "name": str(book.get("name", "Kitob")),
+            "qty": int(qty),
+            "unit_price": int(effective_price(book)),
+            "unit_cost": int(book.get("cost_price", 0) or 0),
+        })
+
     order_id = str(int(time.time() * 1000))
-    while order_id in orders:
+    while order_id in orders or int(order_id) < STATS_RESET_ORDER_ID:
         time.sleep(0.001)
         order_id = str(int(time.time() * 1000))
 
@@ -2523,47 +2556,45 @@ def save_instagram_sale(state):
         "address": "Instagram",
         "cart": cart,
         "items": items,
-        "total": books_total,
-        "delivery_fee": delivery_fee,
-        "grand_total": grand_total,
+        "total": int(books_total),
+        "delivery_fee": int(delivery_fee),
+        "grand_total": int(grand_total),
         "discount": 0,
         "status": "shipped",
         "payment_declared": True,
         "receipt_file_id": "",
         "source": "instagram",
-        "instagram_received_total": received_total,
+        "instagram_received_total": int(received_total),
         "postage_paid_by": "customer" if customer_pays_postage else "admin",
-        "created_at": datetime.now().isoformat(timespec="seconds")
+        "created_at": datetime.now().isoformat(timespec="seconds"),
     }
-    # Instagram savdoda statistika uchun aynan admin kiritgan real jami summa ishlatiladi.
-    # Mijoz pochta to‘lagan bo‘lsa, 4,000 won yetkazish sifatida ajratiladi;
-    # qolgan qismi kitob savdosi hisoblanadi. Admin pochta to‘lasa, jami summa kitob savdosi.
-    order["total"] = int(books_total)
-    order["delivery_fee"] = int(delivery_fee)
-    order["grand_total"] = int(grand_total)
-    order["instagram_received_total"] = int(received_total)
-    order["postage_paid_by"] = "customer" if customer_pays_postage else "admin"
+
+    # Faqat HAMMA tekshiruvdan o'tgandan keyin qoldiq bir marta kamayadi.
+    for bid, qty in cart.items():
+        book = by_id[str(bid)]
+        book["stock"] = int(book.get("stock", 0)) - int(qty)
+    save_books()
 
     orders[order_id] = order
     save_orders()
 
-    # Instagram savdoni darhol markaziy tarixga ham yozamiz.
-    # Stock yuqorida allaqachon kamaygan, shuning uchun preserve_stock=True.
+    # Markaziy bazaga yozish muvaffaqiyatsiz bo'lsa local savdo saqlanib qoladi;
+    # sync_wrapper keyingi siklda aynan shu order_id bilan qayta urinadi.
     try:
         cloud_result = cloud_bridge.create_order(order, preserve_stock=True)
         if isinstance(cloud_result, dict) and cloud_result.get("id"):
             cloud_id = str(cloud_result["id"])
             order["cloud_order_id"] = cloud_id
-            cloud_bridge.mark_instagram_order(cloud_id)
-            order["source"] = "instagram"
             orders[order_id] = order
             save_orders()
+            try:
+                cloud_bridge.mark_instagram_order(cloud_id)
+            except Exception as mark_error:
+                print("Instagram source belgilash xatosi:", mark_error)
     except Exception as e:
-        # Local savdo yo‘qolmaydi; sync_wrapper keyingi siklda qayta urinadi.
         print("Instagram savdoni Supabase'ga yozish xatosi:", e)
 
     return order
-
 
 def _sold_book_date(raw):
     try:
@@ -2577,7 +2608,7 @@ def _local_sold_rows():
     for order in orders.values():
         if not isinstance(order, dict):
             continue
-        if str(order.get("status") or "") not in ("shipped", "delivered"):
+        if str(order.get("status") or "") != "shipped":
             continue
         sold_at = order.get("created_at", "")
         source = str(order.get("source") or "telegram")
@@ -5078,7 +5109,7 @@ def handle_callback(callback):
         order_id, book_id = parts[1], parts[2]
         order = orders.get(order_id)
         book = find_book(book_id)
-        if not order or not book or int(order.get("chat_id", -1)) != int(chat_id) or order.get("status") != "delivered":
+        if not order or not book or int(order.get("chat_id", -1)) != int(chat_id) or order.get("status") != "shipped":
             send(chat_id, "❌ Bu kitobni baholash mumkin emas.")
             return
         if user_has_rated(chat_id, order_id, book_id):
@@ -5096,7 +5127,7 @@ def handle_callback(callback):
             return
         order = orders.get(order_id)
         book = find_book(book_id)
-        if not order or not book or int(order.get("chat_id", -1)) != int(chat_id) or order.get("status") != "delivered":
+        if not order or not book or int(order.get("chat_id", -1)) != int(chat_id) or order.get("status") != "shipped":
             send(chat_id, "❌ Bu baholash amal qilish muddati tugagan yoki buyurtma sizniki emas.")
             return
         if user_has_rated(chat_id, order_id, book_id):

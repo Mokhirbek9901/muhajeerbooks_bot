@@ -20,6 +20,8 @@ ADMIN_ID = os.environ.get("ADMIN_ID", "").strip()
 DATA_DIR = "/data" if os.path.isdir("/data") else "."
 BOOKS_FILE = os.path.join(DATA_DIR, "books.json")
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
+RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
+ORDER_RESET_MARKER = os.path.join(DATA_DIR, "order_history_reset_20260908_v2.done")
 SYNC_INTERVAL = 2
 CATALOG_RESET_MARKER = os.path.join(DATA_DIR, "catalog_full_reset_20260908_v1.done")
 
@@ -71,6 +73,21 @@ def _read_books():
 def _read_orders():
     data = _read_json(ORDERS_FILE, {})
     return data if isinstance(data, dict) else {}
+
+
+def _order_reset_once():
+    """Production reset: old test orders/ratings cannot re-enter cloud on restart."""
+    if os.path.exists(ORDER_RESET_MARKER):
+        return
+    _write_json(ORDERS_FILE, {})
+    _write_json(RATINGS_FILE, {})
+    tmp = ORDER_RESET_MARKER + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"reset_order_id": 1788893918395, "at": datetime.now(timezone.utc).isoformat()}))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, ORDER_RESET_MARKER)
+    print("ORDER_HISTORY_RESET_20260908_V2: local orders and ratings cleared")
 
 
 def _catalog_reset_once():
@@ -769,6 +786,7 @@ def sync_loop():
 if SUPABASE_URL and SUPABASE_ANON_KEY and SYNC_SECRET:
     # Sync boshlanishidan OLDIN ikkala katalogni atomik reset qilamiz; aks holda
     # eski Railway books.json cloudga yana qayta push bo'lib ketishi mumkin.
+    _order_reset_once()
     _catalog_reset_once()
     threading.Thread(target=sync_loop, daemon=True, name="supabase-live-sync").start()
 else:
