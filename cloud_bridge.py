@@ -66,6 +66,21 @@ def set_order_status(order, status):
     )
 
 
+def sales_list(limit=5000):
+    result = rpc(
+        "bot_sales_list",
+        {"p_secret": SYNC_SECRET, "p_limit": int(limit)},
+    )
+    return result if isinstance(result, list) else []
+
+
+def mark_instagram_order(cloud_id):
+    return rpc(
+        "bot_mark_instagram_order",
+        {"p_secret": SYNC_SECRET, "p_cloud_id": str(cloud_id)},
+    )
+
+
 def delete_book(book):
     cloud_id = str(book.get("cloud_id") or "").strip() or None
     try:

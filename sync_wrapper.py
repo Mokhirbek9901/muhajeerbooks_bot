@@ -681,18 +681,30 @@ def sync_loop():
                 if str(order.get("source") or "telegram") == "app":
                     continue
                 try:
+                    original_source = str(order.get("source") or "telegram")
                     result = _rpc("bot_order_create", {
                         "p_secret": SYNC_SECRET,
                         "p_order": order,
                         "p_preserve_stock": True,
                     })
                     if isinstance(result, dict) and result.get("id"):
-                        order["cloud_order_id"] = str(result.get("id"))
-                        order["source"] = "telegram"
+                        cloud_id = str(result.get("id"))
+                        order["cloud_order_id"] = cloud_id
+                        if original_source == "instagram":
+                            try:
+                                _rpc("bot_mark_instagram_order", {
+                                    "p_secret": SYNC_SECRET,
+                                    "p_cloud_id": cloud_id,
+                                })
+                            except Exception as e:
+                                print(f"Instagram source sync xatosi ({key}):", e)
+                            order["source"] = "instagram"
+                        else:
+                            order["source"] = "telegram"
                         local_orders[str(key)] = order
                         orders_changed = True
                 except Exception as e:
-                    print(f"Telegram buyurtmasini cloudga retry xatosi ({key}):", e)
+                    print(f"Telegram/Instagram buyurtmasini cloudga retry xatosi ({key}):", e)
             if orders_changed:
                 _write_json(ORDERS_FILE, local_orders)
 

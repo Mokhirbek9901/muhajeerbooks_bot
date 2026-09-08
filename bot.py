@@ -1278,6 +1278,7 @@ def admin_menu():
             [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
             [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
             [{"text": "⚡ Tezkor qoldiq"}],
+            [{"text": "📚 Sotilgan kitoblar"}],
             [{"text": "📷 Instagram savdo"}],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
             [{"text": "📅 Bugungi hisobot"}],
@@ -2545,7 +2546,95 @@ def save_instagram_sale(state):
 
     orders[order_id] = order
     save_orders()
+
+    # Instagram savdoni darhol markaziy tarixga ham yozamiz.
+    # Stock yuqorida allaqachon kamaygan, shuning uchun preserve_stock=True.
+    try:
+        cloud_result = cloud_bridge.create_order(order, preserve_stock=True)
+        if isinstance(cloud_result, dict) and cloud_result.get("id"):
+            cloud_id = str(cloud_result["id"])
+            order["cloud_order_id"] = cloud_id
+            cloud_bridge.mark_instagram_order(cloud_id)
+            order["source"] = "instagram"
+            orders[order_id] = order
+            save_orders()
+    except Exception as e:
+        # Local savdo yo‘qolmaydi; sync_wrapper keyingi siklda qayta urinadi.
+        print("Instagram savdoni Supabase'ga yozish xatosi:", e)
+
     return order
+
+
+def _sold_book_date(raw):
+    try:
+        return _local_datetime(raw).strftime("%d.%m.%Y")
+    except Exception:
+        return "—"
+
+
+def _local_sold_rows():
+    rows = []
+    for order in orders.values():
+        if not isinstance(order, dict):
+            continue
+        if str(order.get("status") or "") not in ("accepted", "paid", "shipped", "delivered"):
+            continue
+        sold_at = order.get("created_at", "")
+        source = str(order.get("source") or "telegram")
+        items = order.get("items")
+        if isinstance(items, list) and items:
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("name") or item.get("title") or "Kitob")
+                try:
+                    qty = max(1, int(item.get("qty") or item.get("quantity") or 1))
+                except Exception:
+                    qty = 1
+                for _ in range(qty):
+                    rows.append({"title": title, "source": source, "sold_at": sold_at})
+            continue
+        for bid, qty_raw in (order.get("cart") or {}).items():
+            book = find_book(bid)
+            title = str((book or {}).get("name") or "Kitob")
+            try:
+                qty = max(1, int(qty_raw))
+            except Exception:
+                qty = 1
+            for _ in range(qty):
+                rows.append({"title": title, "source": source, "sold_at": sold_at})
+    rows.sort(key=lambda row: str(row.get("sold_at") or ""))
+    return rows
+
+
+def admin_sold_books_texts():
+    try:
+        rows = cloud_bridge.sales_list(5000)
+    except Exception as e:
+        print("Sotilgan kitoblar cloud tarixi xatosi:", e)
+        rows = _local_sold_rows()
+
+    if not rows:
+        return ["📚 SOTILGAN KITOBLAR\n\nHozircha sotuv yo‘q."]
+
+    lines = []
+    for index, row in enumerate(rows, 1):
+        title = str(row.get("title") or "Kitob").strip() or "Kitob"
+        date = _sold_book_date(row.get("sold_at"))
+        lines.append(f"{index}. {title} ({date})")
+
+    chunks = []
+    current = "📚 SOTILGAN KITOBLAR\n\n"
+    for line in lines:
+        candidate = current + line + "\n"
+        if len(candidate) > 3500 and current.strip() != "📚 SOTILGAN KITOBLAR":
+            chunks.append(current.rstrip())
+            current = line + "\n"
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current.rstrip())
+    return chunks
 
 
 # =========================
@@ -3000,6 +3089,20 @@ def handle_message(message):
                 "Asosiy menyu:",
                 main_menu(chat_id)
             )
+            return
+
+        if text == "📚 Sotilgan kitoblar":
+            states.pop(chat_id, None)
+            try:
+                messages = admin_sold_books_texts()
+                for index, value in enumerate(messages):
+                    send(
+                        chat_id,
+                        value,
+                        admin_menu() if index == len(messages) - 1 else None,
+                    )
+            except Exception as e:
+                send(chat_id, f"❌ Sotuv tarixini ochib bo‘lmadi: {e}", admin_menu())
             return
 
         if text == "📷 Instagram savdo":
