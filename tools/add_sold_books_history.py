@@ -105,7 +105,7 @@ old_save = '''    orders[order_id] = order
 # =========================
 # BUYURTMANI YAKUNLASH
 '''
-new_save = '''    orders[order_id] = order
+new_save = r'''    orders[order_id] = order
     save_orders()
 
     # Instagram savdoni darhol markaziy tarixga ham yozamiz.
