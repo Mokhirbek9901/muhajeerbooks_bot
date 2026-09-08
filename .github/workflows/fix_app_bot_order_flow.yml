@@ -17,7 +17,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply fixes
-        run: python .github/fix_app_bot_order_flow.py
+        run: |
+          sed -i "s/^accept_block = '''/accept_block = r'''/" .github/fix_app_bot_order_flow.py
+          python .github/fix_app_bot_order_flow.py
 
       - name: Validate
         run: |
