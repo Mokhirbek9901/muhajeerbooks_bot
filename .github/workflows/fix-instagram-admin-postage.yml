@@ -19,7 +19,7 @@ jobs:
       - name: Verify fix
         run: |
           grep -F "books_total = max(0, received_total - int(DELIVERY_FEE))" bot.py
-          grep -F "books_amount = max(0, received - int(DELIVERY_FEE))" bot.py
+          grep -F "books_total = max(0, received - int(DELIVERY_FEE))" bot.py
       - name: Commit and clean temporary files
         run: |
           rm -f .github/fix-instagram-admin-postage.py .github/workflows/fix-instagram-admin-postage.yml .github/fix-instagram-admin-postage.trigger
