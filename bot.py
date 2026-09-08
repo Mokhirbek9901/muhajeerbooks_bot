@@ -2182,6 +2182,30 @@ def _instagram_name_key(value):
     return " ".join("".join(cleaned).split())
 
 
+def _instagram_qty_token(token):
+    value = str(token or "").casefold().strip()
+    if value.endswith("ta"):
+        value = value[:-2].strip()
+    if value.startswith("x"):
+        value = value[1:].strip()
+    if value.endswith("x"):
+        value = value[:-1].strip()
+    try:
+        qty = int(value)
+        return qty if qty > 0 else None
+    except Exception:
+        return None
+
+
+def _instagram_money_token(token):
+    value = str(token or "").strip().replace("₩", "").replace(",", "").replace(".", "").replace(" ", "")
+    try:
+        amount = int(value)
+        return amount if amount > 0 else None
+    except Exception:
+        return None
+
+
 def parse_instagram_sale_items(text):
     refresh_books()
     exact = {}
@@ -2189,28 +2213,54 @@ def parse_instagram_sale_items(text):
         exact.setdefault(_instagram_name_key(b.get("name", "")), []).append(b)
 
     selected = {}
+    sale_prices = {}
     errors = []
+
     for raw_line in str(text or "").splitlines():
         line = raw_line.strip()
         if not line:
             continue
+
         parts = line.split()
         if len(parts) < 2:
             errors.append(f"• {line} — soni yozilmagan")
             continue
-        qty_token = parts[-1].casefold().replace("ta", "").replace("x", "").strip()
-        try:
-            qty = int(qty_token)
-            if qty <= 0:
-                raise ValueError
-        except Exception:
-            errors.append(f"• {line} — oxirida son bo‘lsin, masalan: 2")
+
+        # Ikki ko‘rinish qabul qilinadi:
+        #   Dafina 1              -> katalog narxi
+        #   Dafina 1 10000        -> 1 dona real sotilgan narx ₩10,000
+        custom_price = None
+        qty = None
+        query_parts = None
+
+        if len(parts) >= 3:
+            maybe_qty = _instagram_qty_token(parts[-2])
+            maybe_price = _instagram_money_token(parts[-1])
+            if maybe_qty is not None and maybe_price is not None:
+                qty = maybe_qty
+                custom_price = maybe_price
+                query_parts = parts[:-2]
+
+        if qty is None:
+            qty = _instagram_qty_token(parts[-1])
+            query_parts = parts[:-1]
+
+        if qty is None or not query_parts:
+            errors.append(f"• {line} — format noto‘g‘ri. Masalan: Dafina 1 10000")
             continue
-        query = " ".join(parts[:-1]).strip()
+
+        query = " ".join(query_parts).strip()
         qkey = _instagram_name_key(query)
         matches = exact.get(qkey, [])
         if not matches:
-            matches = [b for b in books if qkey and (qkey in _instagram_name_key(b.get("name", "")) or _instagram_name_key(b.get("name", "")) in qkey)]
+            matches = [
+                b for b in books
+                if qkey and (
+                    qkey in _instagram_name_key(b.get("name", ""))
+                    or _instagram_name_key(b.get("name", "")) in qkey
+                )
+            ]
+
         if len(matches) != 1:
             if not matches:
                 errors.append(f"• {query} — topilmadi")
@@ -2218,23 +2268,43 @@ def parse_instagram_sale_items(text):
                 names = ", ".join(str(b.get("name", "")) for b in matches[:4])
                 errors.append(f"• {query} — aniq emas: {names}")
             continue
+
         book = matches[0]
         bid = str(book.get("id"))
-        selected[bid] = selected.get(bid, 0) + qty
+        actual_price = int(custom_price if custom_price is not None else effective_price(book))
+        if actual_price <= 0:
+            errors.append(f"• {query} — narxi 0. Sotilgan narxni yozing, masalan: {query} {qty} 10000")
+            continue
+
+        if bid in selected and int(sale_prices.get(bid, actual_price)) != actual_price:
+            errors.append(f"• {query} — bir xil kitobni turli narxda kiritmang; alohida savdo qilib saqlang")
+            continue
+
+        selected[bid] = selected.get(bid, 0) + int(qty)
+        sale_prices[bid] = actual_price
 
     if not selected and not errors:
         errors.append("Kitoblar yozilmadi.")
-    return selected, errors
+
+    return selected, sale_prices, errors
 
 
-def instagram_sale_items_text(cart):
+def instagram_sale_items_text(cart, sale_prices=None):
+    sale_prices = sale_prices or {}
     lines = []
     for bid, qty in cart.items():
         b = find_book(bid)
         name = b.get("name", "Kitob") if b else "Kitob"
         stock = int(b.get("stock", 0)) if b else 0
-        lines.append(f"• {name} × {int(qty)}  (omborda {stock} ta)")
+        catalog_price = int(effective_price(b)) if b else 0
+        actual_price = int(sale_prices.get(str(bid), catalog_price) or 0)
+        subtotal = actual_price * int(qty)
+        price_note = f"₩{actual_price:,}/dona"
+        if b and catalog_price > 0 and actual_price != catalog_price:
+            price_note += f" (katalog ₩{catalog_price:,})"
+        lines.append(f"• {name} × {int(qty)} — {price_note} = ₩{subtotal:,}  (omborda {stock} ta)")
     return "\n".join(lines)
+
 
 
 def instagram_postage_keyboard():
@@ -2278,7 +2348,7 @@ def save_instagram_sale(state):
             "book_id": str(bid),
             "name": str(b.get("name", "Kitob")),
             "qty": int(qty),
-            "unit_price": int(effective_price(b)),
+            "unit_price": int(state.get("sale_prices", {}).get(str(bid), effective_price(b))),
             "unit_cost": int(b.get("cost_price", 0) or 0)
         })
 
@@ -2287,7 +2357,7 @@ def save_instagram_sale(state):
         by_id[str(bid)]["stock"] = int(by_id[str(bid)].get("stock", 0)) - int(qty)
     save_books()
 
-    books_total = int(state.get("sale_amount", 0))
+    books_total = sum(int(item.get("unit_price", 0)) * int(item.get("qty", 0)) for item in items)
     customer_pays_postage = bool(state.get("customer_pays_postage", False))
     delivery_fee = int(DELIVERY_FEE) if customer_pays_postage else 0
     grand_total = books_total + delivery_fee
@@ -2780,11 +2850,12 @@ def handle_message(message):
             send(
                 chat_id,
                 "📷 INSTAGRAM SAVDO\n\n"
-                "Sotilgan kitoblarni har qatorga nomi va soni bilan yozing.\n\n"
+                "Har qatorga: KITOB NOMI + SONI + 1 DONA SOTILGAN NARXINI yozing.\n\n"
                 "Masalan:\n"
-                "Dafina 1\n"
-                "Boy ota kambag‘al ota 2\n\n"
-                "Oxiridagi son — nechta sotilganini bildiradi.",
+                "Dafina 1 10000\n"
+                "Boy ota kambag‘al ota 2 12000\n\n"
+                "Narxni arzonroq yoki qimmatroq yozishingiz mumkin.\n"
+                "Narx yozmasangiz, botdagi hozirgi narx olinadi.",
                 {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True}
             )
             return
@@ -2965,46 +3036,36 @@ def handle_message(message):
             action = state.get("action")
 
             if action == "instagram_items":
-                cart, errors = parse_instagram_sale_items(text)
+                cart, sale_prices, errors = parse_instagram_sale_items(text)
                 if errors:
                     send(
                         chat_id,
-                        "❌ Ayrim kitoblarni aniqlay olmadim:\n\n" + "\n".join(errors) +
-                        "\n\nQaytadan, har qatorga kitobning aniq nomi va sonini yozing."
+                        "❌ Ayrim qatorlarni aniqlay olmadim:\n\n" + "\n".join(errors) +
+                        "\n\nQaytadan yozing. Masalan:\nDafina 1 10000"
                     )
                     return
-                # Ombor yetarliligini hozir ham tekshiramiz, saqlashda yana bir marta tekshiriladi.
+
                 shortages = []
                 for bid, qty in cart.items():
                     b = find_book(bid)
                     if not b or int(b.get("stock", 0)) < int(qty):
-                        shortages.append(f"• {(b or {}).get('name','Kitob')} — kerak {qty}, omborda {int((b or {}).get('stock',0))} ta")
+                        shortages.append(
+                            f"• {(b or {}).get('name','Kitob')} — kerak {qty}, omborda {int((b or {}).get('stock',0))} ta"
+                        )
                 if shortages:
                     send(chat_id, "❌ Omborda yetarli emas:\n\n" + "\n".join(shortages))
                     return
-                state["cart"] = cart
-                state["action"] = "instagram_amount"
-                send(
-                    chat_id,
-                    "✅ Kitoblar topildi:\n\n" + instagram_sale_items_text(cart) +
-                    "\n\n💰 Endi KITOBLAR uchun mijozdan olgan jami summani yozing.\n"
-                    "Pochta pulini qo‘shmang.\nMasalan: 38000"
-                )
-                return
 
-            if action == "instagram_amount":
-                try:
-                    amount = int(text.replace("₩", "").replace(",", "").replace(".", "").replace(" ", ""))
-                    if amount <= 0:
-                        raise ValueError
-                except Exception:
-                    send(chat_id, "❌ Summani faqat son bilan yozing. Masalan: 38000")
-                    return
+                state["cart"] = cart
+                state["sale_prices"] = sale_prices
+                amount = sum(int(sale_prices[str(bid)]) * int(qty) for bid, qty in cart.items())
                 state["sale_amount"] = amount
                 state["action"] = "instagram_postage"
                 send(
                     chat_id,
-                    f"💰 Kitoblar savdosi: ₩{amount:,}\n\n🚚 Pochta pulini kim to‘ladi?",
+                    "✅ Kitoblar va sotilgan narxlar:\n\n" +
+                    instagram_sale_items_text(cart, sale_prices) +
+                    f"\n\n💰 Kitoblar jami: ₩{amount:,}\n\n🚚 Pochta pulini kim to‘ladi?",
                     instagram_postage_keyboard()
                 )
                 return
@@ -3013,15 +3074,21 @@ def handle_message(message):
                 if text not in ("👤 Pochta mijozdan", "🎁 Pochta mendan"):
                     send(chat_id, "Quyidagi 2 ta tugmadan birini tanlang.", instagram_postage_keyboard())
                     return
+
                 state["customer_pays_postage"] = text == "👤 Pochta mijozdan"
                 state["action"] = "instagram_confirm"
                 fee = int(DELIVERY_FEE) if state["customer_pays_postage"] else 0
-                amount = int(state.get("sale_amount", 0))
+                sale_prices = state.get("sale_prices", {})
+                amount = sum(
+                    int(sale_prices.get(str(bid), 0)) * int(qty)
+                    for bid, qty in state.get("cart", {}).items()
+                )
+                state["sale_amount"] = amount
                 postage_text = "Mijoz +₩4,000 to‘ladi" if fee else "Siz to‘laysiz (hisobotda ₩4,000 xarajat)"
                 send(
                     chat_id,
                     "🧾 INSTAGRAM SAVDO — TEKSHIRING\n\n" +
-                    instagram_sale_items_text(state.get("cart", {})) +
+                    instagram_sale_items_text(state.get("cart", {}), sale_prices) +
                     f"\n\n💰 Kitoblar: ₩{amount:,}" +
                     f"\n🚚 Pochta: {postage_text}" +
                     f"\n💵 Jami tushum: ₩{amount + fee:,}" +
