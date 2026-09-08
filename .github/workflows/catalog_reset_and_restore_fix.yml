@@ -1,0 +1,37 @@
+name: Safe catalog reset and restore
+
+on:
+  push:
+    paths:
+      - '.github/catalog_reset_and_restore_fix.py'
+      - '.github/workflows/catalog_reset_and_restore_fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply patch
+        run: python .github/catalog_reset_and_restore_fix.py
+      - name: Validate
+        run: |
+          python -m py_compile bot.py cloud_bridge.py sync_wrapper.py
+          grep -q 'restored_book.pop("cloud_id", None)' bot.py
+          grep -q 'def _catalog_reset_once' sync_wrapper.py
+          grep -q 'CATALOG_FULL_RESET_20260908' sync_wrapper.py
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bot.py sync_wrapper.py
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Safely reset catalog and make backup restore republish books'
+          git push origin HEAD:main
