@@ -1,0 +1,38 @@
+name: Fix delete and profit
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix_delete_and_profit.yml'
+      - '.github/fix_delete_and_profit.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply fixes
+        run: python .github/fix_delete_and_profit.py
+      - name: Validate
+        run: |
+          python -m py_compile bot.py cloud_bridge.py sync_wrapper.py
+          grep -q 'Bot va ilova katalogidan olib tashlandi' bot.py
+          grep -q 'paid_statuses = ("shipped", "delivered")' bot.py
+          grep -q 'def _pull_tombstones' sync_wrapper.py
+          grep -q 'removed_stale = _remove_tombstoned_local' sync_wrapper.py
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bot.py sync_wrapper.py
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Fix stale book deletion and profit reporting'
+          git push origin HEAD:main
