@@ -536,28 +536,27 @@ def load_books():
         os.replace(marker_tmp, BOOK_IMPORT_MARKER)
         print(f"BOOK_IMPORT_20260906: added={added} skipped={skipped}")
 
-    # GitHub orqali qo‘shilgan kitob: mavjud bo‘lmasa bir marta omborga qo‘shiladi.
-    if not any(str(b.get("name", "")).strip().casefold() == "assasin" for b in books):
-        next_id = max(
-            [int(b.get("id", 0)) for b in books if str(b.get("id", "")).isdigit()],
-            default=0
-        ) + 1
-        books.append({
-            "id": next_id,
-            "name": "Assasin",
-            "price": 17000,
-            "stock": 3,
-            "category": "Boshqalar",
-            "author": "Ko‘rsatilmagan",
-            "description": "Ma’lumot kiritilmagan.",
-            "old_price": 0,
-            "cost_price": 0,
-            "photo_id": "",
-            "cover": "Yumshoq",
-            "recommended": False,
-            "created_at": datetime.now().isoformat()
-        })
-        changed = True
+    # ASSASIN_LEGACY_CLEANUP_20260908
+    # Eski versiyada Assasin hardcoded tarzda har load_books() da qayta qo‘shilardi.
+    # Endi bu avtomatik qo‘shish butunlay olib tashlangan. Bir martalik migratsiya
+    # Railway volume ichida qolgan eski Assasin nusxasini ham tozalaydi.
+    assasin_cleanup_marker = os.path.join(DATA_DIR, "assasin_cleanup_20260908_v1.done")
+    if not os.path.exists(assasin_cleanup_marker):
+        before_count = len(books)
+        books[:] = [
+            b for b in books
+            if str(b.get("name", "")).strip().casefold() != "assasin"
+        ]
+        removed_count = before_count - len(books)
+        if removed_count:
+            changed = True
+        marker_tmp = assasin_cleanup_marker + ".tmp"
+        with open(marker_tmp, "w", encoding="utf-8") as f:
+            f.write(f"removed={removed_count};at={datetime.now().isoformat()}\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(marker_tmp, assasin_cleanup_marker)
+        print(f"ASSASIN_LEGACY_CLEANUP_20260908: removed={removed_count}")
 
     for b in books:
         category = normalize_category(b.get("category", "Boshqalar"))
