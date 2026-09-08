@@ -17,7 +17,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply fixes
-        run: python .github/fix_delete_and_profit.py
+        run: |
+          sed -i "s/^new_delete = '''/new_delete = r'''/" .github/fix_delete_and_profit.py
+          python .github/fix_delete_and_profit.py
       - name: Validate
         run: |
           python -m py_compile bot.py cloud_bridge.py sync_wrapper.py
