@@ -2456,7 +2456,7 @@ def save_instagram_sale(state):
     if customer_pays_postage and received_total < delivery_fee:
         raise ValueError("Jami summa pochta pulidan kam bo‘lishi mumkin emas.")
 
-    books_total = received_total - delivery_fee if customer_pays_postage else received_total
+    books_total = max(0, received_total - int(DELIVERY_FEE))
     grand_total = received_total
 
     order_id = str(int(time.time() * 1000))
@@ -3208,7 +3208,7 @@ def handle_message(message):
                     return
 
                 fee = int(DELIVERY_FEE) if customer_pays else 0
-                books_total = received - fee if customer_pays else received
+                books_total = max(0, received - int(DELIVERY_FEE))
                 state["books_total"] = books_total
                 state["action"] = "instagram_confirm"
                 postage_text = "Mijoz to‘ladi — ₩4,000" if customer_pays else "Siz to‘ladingiz — ₩4,000 xarajat"
