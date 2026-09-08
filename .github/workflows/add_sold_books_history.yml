@@ -1,0 +1,33 @@
+name: Add sold books history
+
+on:
+  push:
+    paths:
+      - '.github/workflows/add_sold_books_history.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Apply sold books patch
+        run: python3 tools/add_sold_books_history.py
+      - name: Syntax check
+        run: python3 -m py_compile bot.py cloud_bridge.py sync_wrapper.py
+      - name: Run tests
+        run: |
+          if [ -d tests ]; then python3 -m unittest discover -s tests -v; fi
+      - name: Commit changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bot.py cloud_bridge.py sync_wrapper.py
+          git diff --cached --quiet && exit 0
+          git commit -m 'Add shared sold books history'
+          git push origin main
