@@ -1,0 +1,34 @@
+name: Instagram short name
+
+on:
+  push:
+    paths:
+      - '.github/instagram-short-name.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply patch
+        run: python .github/instagram-short-name.py
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Verify short-name code
+        run: |
+          grep -q 'Instagram savdoda qisqa yoki biroz xato nomdan eng yaqin bitta kitobni tanlaydi' bot.py
+          grep -q 'if len(matches) > 1:' bot.py
+      - name: Commit and clean temporary files
+        run: |
+          rm -f .github/instagram-short-name.py .github/instagram-short-name.trigger .github/workflows/instagram-short-name.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Allow short book names in Instagram sales'
+          git push origin main
