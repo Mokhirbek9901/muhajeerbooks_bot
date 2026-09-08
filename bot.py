@@ -2211,15 +2211,13 @@ def admin_order_detail(order):
 def admin_order_status_keyboard(order_id, status):
     buttons=[]
     if status == "pending":
-        buttons.append([{ "text":"💳 To‘lov qilindi", "callback_data":f"paid_{order_id}" }])
+        buttons.append([{ "text":"✅ Buyurtmani qabul qilish", "callback_data":f"accept_{order_id}" }])
         buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
-    elif status == "accepted":
-        buttons.append([{ "text":"💳 To‘lov qilindi", "callback_data":f"paid_{order_id}" }])
-        buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
-    elif status == "paid":
+    elif status in ("accepted", "paid"):
         buttons.append([{ "text":"🚚 Jo‘natildi", "callback_data":f"ship_{order_id}" }])
-    elif status == "shipped":
-        buttons.append([{ "text":"✅ Yetkazildi", "callback_data":f"deliver_{order_id}" }])
+        if status == "accepted":
+            buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
+    # Jo‘natildi — yakuniy bosqich. Yetkazildi tugmasi endi yo‘q.
     buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
     return {"inline_keyboard":buttons}
 
@@ -5005,6 +5003,53 @@ def handle_callback(callback):
         return
 
     # =========================
+    # ADMIN: ACCEPT ORDER
+    # =========================
+
+    if data.startswith("accept_"):
+        if not is_admin(chat_id):
+            return
+        order_id = data.split("_", 1)[1]
+        order = orders.get(order_id)
+        if not order:
+            send(chat_id, "❌ Zakaz topilmadi.")
+            return
+        if order.get("status") != "pending":
+            send(chat_id, "⚠️ Bu zakaz allaqachon qayta ishlangan.")
+            return
+        try:
+            _cloud_set_order_status(order, "accepted")
+        except Exception as e:
+            send(chat_id, f"❌ Buyurtma qabul qilinmadi: {e}")
+            return
+        order["status"] = "accepted"
+        save_orders()
+        refresh_books()
+        for book_id in order.get("cart", {}):
+            book = find_book(book_id)
+            if not book:
+                continue
+            remaining = int(book.get("stock", 0))
+            if remaining == 0:
+                send(chat_id, f"❌ OMBORDA TUGADI: {book['name']}")
+            elif remaining <= LOW_STOCK_LIMIT:
+                send(chat_id, f"⚠️ KAM QOLDI: {book['name']} — {remaining} ta")
+        send(
+            chat_id,
+            f"✅ Buyurtma №{order_id} qabul qilindi.\n\n📦 Ombor bot va programmada bir xil yangilandi.",
+            admin_order_status_keyboard(order_id, "accepted")
+        )
+        customer_chat = int(order.get("chat_id") or 0)
+        if customer_chat > 0 and str(order.get("source") or "telegram") != "app":
+            send(
+                customer_chat,
+                "✅ BUYURTMANGIZ QABUL QILINDI!\n\n" + order_receipt_text(order) +
+                "\n\n📦 Kitoblaringiz pochtaga topshirilganda sizga alohida xabar yuboriladi.",
+                main_menu(customer_chat)
+            )
+        return
+
+    # =========================
     # ADMIN: SHIPPED
     # =========================
 
@@ -5013,8 +5058,8 @@ def handle_callback(callback):
             return
         order_id = data.split("_", 1)[1]
         order = orders.get(order_id)
-        if not order or order.get("status") != "paid":
-            send(chat_id, "⚠️ Avval to‘lovni tasdiqlang.")
+        if not order or order.get("status") not in ("accepted", "paid"):
+            send(chat_id, "⚠️ Avval buyurtmani qabul qiling.")
             return
         try:
             _cloud_set_order_status(order, "shipped")
@@ -5025,7 +5070,7 @@ def handle_callback(callback):
         save_orders()
         send(chat_id, f"🚚 Buyurtma №{order_id} jo‘natildi.", admin_order_status_keyboard(order_id, "shipped"))
         customer_chat = int(order.get("chat_id") or 0)
-        if customer_chat > 0:
+        if customer_chat > 0 and str(order.get("source") or "telegram") != "app":
             send(
                 customer_chat,
                 "🚚 Kitobingiz jo‘natildi!\n\n"
@@ -5036,33 +5081,12 @@ def handle_callback(callback):
         return
 
     # =========================
-    # ADMIN: DELIVERED
+    # ADMIN: DELIVERED (legacy button)
     # =========================
 
     if data.startswith("deliver_"):
-        if not is_admin(chat_id):
-            return
-        order_id = data.split("_", 1)[1]
-        order = orders.get(order_id)
-        if not order or order.get("status") != "shipped":
-            send(chat_id, "⚠️ Buyurtma holati mos emas.")
-            return
-        try:
-            _cloud_set_order_status(order, "delivered")
-        except Exception as e:
-            send(chat_id, f"❌ Holat yangilanmadi: {e}")
-            return
-        order["status"] = "delivered"
-        save_orders()
-        send(chat_id, f"✅ Zakaz №{order_id} yetkazildi deb belgilandi.", admin_menu())
-        customer_chat = int(order.get("chat_id") or 0)
-        if customer_chat > 0:
-            send(
-                customer_chat,
-                f"✅ Zakaz №{order_id} yetkazildi deb belgilandi.\n\n"
-                "Rahmat! ❤️ «📜 Mening buyurtmalarim» bo‘limida kitobga baho va fikr qoldirishingiz mumkin.",
-                main_menu(customer_chat)
-            )
+        if is_admin(chat_id):
+            send(chat_id, "ℹ️ «Yetkazildi» bosqichi olib tashlangan. 🚚 Jo‘natildi — yakuniy holat.", admin_menu())
         return
 
     # =========================

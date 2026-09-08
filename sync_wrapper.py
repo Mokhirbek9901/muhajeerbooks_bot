@@ -412,7 +412,13 @@ def _cloud_order_to_bot(row, books_by_uuid, existing=None):
         if tid > 0:
             cart[str(tid)] = qty
 
-    linked_chat = int(row.get("telegram_chat_id") or existing.get("chat_id") or 0)
+    # Ilovadan kelgan buyurtma Telegram mijoziga avtomatik bog‘lanmaydi.
+    # Telegram akkauntining SIM raqamini bot ko‘rmaydi; telefon bo‘yicha taxminiy
+    # bog‘lash boshqa akkauntga xabar yuborishiga sabab bo‘lishi mumkin.
+    source = str(row.get("source") or "app")
+    linked_chat = 0 if source == "app" else int(
+        row.get("telegram_chat_id") or existing.get("chat_id") or 0
+    )
 
     existing.update(
         {
@@ -501,10 +507,16 @@ def _notify_admin_app_order(order):
         "inline_keyboard": [
             [
                 {
+                    "text": "✅ Buyurtmani qabul qilish",
+                    "callback_data": f"accept_{order.get('order_id')}",
+                }
+            ],
+            [
+                {
                     "text": "📦 Buyurtmani ochish",
                     "callback_data": f"adminorder_{order.get('order_id')}",
                 }
-            ]
+            ],
         ]
     }
     _telegram_send(ADMIN_ID, text, kb)

@@ -72,11 +72,16 @@ def delete_book(book):
         telegram_id = int(book.get("id") or 0)
     except Exception:
         telegram_id = None
-    return rpc(
-        "bot_sync_delete",
-        {
-            "p_secret": SYNC_SECRET,
-            "p_telegram_id": telegram_id if telegram_id and telegram_id > 0 else None,
-            "p_cloud_id": cloud_id,
-        },
-    )
+    payload = {
+        "p_secret": SYNC_SECRET,
+        "p_telegram_id": telegram_id if telegram_id and telegram_id > 0 else None,
+        "p_cloud_id": cloud_id,
+    }
+    result = rpc("bot_sync_delete", payload)
+    try:
+        deleted = int(result or 0)
+    except Exception:
+        deleted = 0
+    if deleted <= 0:
+        raise RuntimeError("Kitob server katalogidan o‘chirilmadi. Qayta urinib ko‘ring.")
+    return deleted
