@@ -449,7 +449,7 @@ def _order_status_to_bot(status):
         "accepted": "accepted",
         "paid": "paid",
         "shipping": "shipped",
-        "done": "delivered",
+        "done": "shipped",
         "cancelled": "cancelled",
     }.get(str(status), "pending")
 
@@ -737,7 +737,8 @@ def sync_loop():
                 merged_orders[key] = merged_order
                 cloud_id = str(row.get("id") or "")
                 if (
-                    initialized and cloud_id and cloud_id not in seen_order_ids
+                    key not in latest_orders
+                    and cloud_id
                     and str(row.get("source") or "app") == "app"
                 ):
                     new_app_orders.append(merged_order)

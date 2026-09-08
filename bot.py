@@ -470,14 +470,14 @@ def load_books():
             if not isinstance(books, list):
                 books = []
             return
-        books = [dict(b) for b in DEFAULT_BOOKS]
+        books = []
 
     changed = False
 
     # 2026-09-06: foydalanuvchi bergan yangi partiyani persistent omborga
     # xavfsiz, bir martalik merge qilamiz. Mavjud nomlar dublikat bo‘lmaydi
     # va ularning narxi/qoldig‘i ustidan yozilmaydi.
-    if not os.path.exists(BOOK_IMPORT_MARKER):
+    if False and not os.path.exists(BOOK_IMPORT_MARKER):
         import_items = [
             ("Dafina", 2, 12000),
             ("57-polk Falastin", 1, 13000),
@@ -929,7 +929,7 @@ def notify_restock(book):
 def best_sellers():
     sold = {}
     for o in orders.values():
-        if o.get("status") in ("paid", "shipped", "delivered"):
+        if o.get("status") in ("shipped", "delivered"):
             for bid, qty in o.get("cart", {}).items():
                 try:
                     sold[int(bid)] = sold.get(int(bid), 0) + int(qty)
@@ -1003,7 +1003,7 @@ def status_name(status):
         "accepted": "📦 Buyurtma qabul qilingan",
         "paid": "🟢 To‘lov tasdiqlangan",
         "shipped": "🚚 Jo‘natildi",
-        "delivered": "✅ Yetkazildi",
+        "delivered": "🚚 Jo‘natildi",
         "cancelled": "❌ Bekor qilindi",
         "stock_problem": "⚠️ Ombor muammosi"
     }.get(status, "❓ Noma’lum")
@@ -2013,7 +2013,7 @@ def user_orders_text(chat_id):
         "pending": "🟡 To‘lov kutilmoqda",
         "paid": "🟢 To‘lov tasdiqlangan",
         "shipped": "🚚 Jo‘natildi",
-        "delivered": "✅ Yetkazildi",
+        "delivered": "🚚 Jo‘natildi",
         "cancelled": "❌ Bekor qilingan",
         "stock_problem": "⚠️ Ombor muammosi"
     }
@@ -2056,7 +2056,7 @@ def rating_keyboard(order_id, book_id):
 
 ORDER_STATUS_NAMES = {
     "pending": "🟡 Kutilmoqda", "accepted": "📦 Qabul qilingan", "paid": "🟢 To‘langan",
-    "shipped": "🚚 Jo‘natilgan", "delivered": "✅ Yetkazilgan",
+    "shipped": "🚚 Jo‘natilgan", "delivered": "🚚 Jo‘natilgan",
     "cancelled": "❌ Bekor qilingan", "stock_problem": "⚠️ Ombor muammosi"
 }
 
@@ -2577,7 +2577,7 @@ def _local_sold_rows():
     for order in orders.values():
         if not isinstance(order, dict):
             continue
-        if str(order.get("status") or "") not in ("accepted", "paid", "shipped", "delivered"):
+        if str(order.get("status") or "") not in ("shipped", "delivered"):
             continue
         sold_at = order.get("created_at", "")
         source = str(order.get("source") or "telegram")
