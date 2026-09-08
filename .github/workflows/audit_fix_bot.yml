@@ -1,0 +1,30 @@
+name: Bot audit fixes
+
+on:
+  push:
+    paths:
+      - '.github/workflows/audit_fix_bot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Apply audit fixes
+        run: python3 tools/audit_fix_bot.py
+      - name: Compile check
+        run: python3 -m py_compile bot.py sync_wrapper.py cloud_bridge.py app_image_sync.py
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bot.py sync_wrapper.py
+          git diff --cached --quiet && exit 0
+          git commit -m 'Fix bot sales finality and sync reliability'
+          git push origin main
