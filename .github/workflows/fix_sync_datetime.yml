@@ -1,0 +1,32 @@
+name: Fix sync datetime
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix_sync_datetime.yml'
+      - '.github/fix_sync_datetime.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch
+        run: python .github/fix_sync_datetime.py
+      - name: Validate
+        run: |
+          python -m py_compile sync_wrapper.py
+          grep -q 'dt = dt.replace(tzinfo=timezone.utc)' sync_wrapper.py
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add sync_wrapper.py
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Normalize sync tombstone timestamps'
+          git push origin HEAD:main
