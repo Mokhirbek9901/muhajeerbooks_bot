@@ -1,0 +1,30 @@
+name: Fix Instagram statistics
+on:
+  push:
+    paths:
+      - '.github/fix-instagram-stats.trigger'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Apply patch
+        run: python .github/fix-instagram-stats.py
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Verify fix
+        run: |
+          grep -q 'def _order_report_total(order):' bot.py
+          grep -q 'order\["instagram_received_total"\] = int(received_total)' bot.py
+      - name: Commit and clean temporary files
+        run: |
+          rm -f .github/fix-instagram-stats.py .github/fix-instagram-stats.trigger .github/workflows/fix-instagram-stats.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Fix Instagram sale statistics'
+          git push origin main
