@@ -143,6 +143,22 @@ favorites = {}
 ratings = {}
 restock_subscribers = {}
 expenses = {}
+ORDER_HISTORY_RESET_MARKER = os.path.join(DATA_DIR, "order_history_reset_20260908_v1.done")
+if not os.path.exists(ORDER_HISTORY_RESET_MARKER):
+    tmp_orders = ORDERS_FILE + ".history_reset.tmp"
+    with open(tmp_orders, "w", encoding="utf-8") as f:
+        json.dump({}, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_orders, ORDERS_FILE)
+    marker_tmp = ORDER_HISTORY_RESET_MARKER + ".tmp"
+    with open(marker_tmp, "w", encoding="utf-8") as f:
+        f.write(datetime.now().isoformat() + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(marker_tmp, ORDER_HISTORY_RESET_MARKER)
+    print("ORDER_HISTORY_RESET_20260908: local orders cleared")
+
 
 
 # =========================
@@ -226,9 +242,19 @@ def send_document(chat_id, filename, content, caption=""):
         return json.loads(response.read().decode())
 
 
-def create_backup():
-    """Botning barcha doimiy ma'lumotlarini bitta JSON faylga yig'adi."""
+def create_books_backup():
+    """Faqat kitoblar katalogini alohida JSON backup qiladi."""
     refresh_books()
+    return json.dumps({
+        "backup_version": 2,
+        "backup_type": "books",
+        "created_at": datetime.now().isoformat(),
+        "books": books,
+    }, ensure_ascii=False, indent=2)
+
+
+def create_data_backup():
+    """Kitoblardan tashqari doimiy ma'lumotlarni alohida JSON backup qiladi."""
     load_orders()
     load_users()
     load_favorites()
@@ -236,60 +262,60 @@ def create_backup():
     load_restock()
     load_expenses()
     return json.dumps({
-        "backup_version": 1,
+        "backup_version": 2,
+        "backup_type": "data",
         "created_at": datetime.now().isoformat(),
-        "books": books,
         "orders": orders,
         "users": users,
         "favorites": favorites,
         "ratings": ratings,
         "restock_subscribers": restock_subscribers,
-        "expenses": expenses
+        "expenses": expenses,
     }, ensure_ascii=False, indent=2)
 
 
 def restore_backup_file(path):
-    """Backup JSONni tekshiradi va barcha doimiy ma'lumotlarni qayta tiklaydi."""
+    """Books/data v2 backup yoki eski full backupni xavfsiz tiklaydi."""
     global books, orders, users, favorites, ratings, restock_subscribers, expenses
 
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    if not isinstance(data, dict) or not isinstance(data.get("books"), list):
-        raise ValueError("Backup fayli noto'g'ri yoki eski formatda.")
+    if not isinstance(data, dict):
+        raise ValueError("Backup fayli noto'g'ri formatda.")
 
-    # To'liq katalog resetidan keyin backupdagi eski Supabase UUID (cloud_id)
-    # mavjud bo'lmaydi. Telegram kitob IDlarini saqlaymiz, cloud_idni esa olib
-    # tashlaymiz — sync ularni yangi cloud kitob sifatida qayta yaratadi.
-    restored_books = []
-    for raw_book in data.get("books", []):
-        if not isinstance(raw_book, dict):
-            continue
-        restored_book = dict(raw_book)
-        restored_book.pop("cloud_id", None)
-        restored_book.pop("web_photo_source_id", None)
-        restored_books.append(restored_book)
+    backup_type = str(data.get("backup_type") or "").strip().lower()
+    is_books = backup_type == "books"
+    is_data = backup_type == "data"
+    is_legacy = not backup_type and isinstance(data.get("books"), list)
+    if not (is_books or is_data or is_legacy):
+        raise ValueError("Backup turi aniqlanmadi.")
 
-    load_expenses()
-    restored = {
-        "orders": data.get("orders", {}),
-        "users": data.get("users", {}),
-        "favorites": data.get("favorites", {}),
-        "ratings": data.get("ratings", {}),
-        "restock_subscribers": data.get("restock_subscribers", {}),
-        "expenses": data.get("expenses", expenses)
-    }
+    payloads = {}
 
-    # Avval vaqtinchalik fayllarga yozamiz. Hammasi muvaffaqiyatli bo'lsa almashtiramiz.
-    payloads = {
-        BOOKS_FILE: restored_books,
-        ORDERS_FILE: restored["orders"],
-        USERS_FILE: restored["users"],
-        FAVORITES_FILE: restored["favorites"],
-        RATINGS_FILE: restored["ratings"],
-        RESTOCK_FILE: restored["restock_subscribers"],
-        EXPENSES_FILE: restored["expenses"]
-    }
+    if is_books or is_legacy:
+        if not isinstance(data.get("books"), list):
+            raise ValueError("Kitoblar backupida books ro'yxati yo'q.")
+        restored_books = []
+        for raw_book in data.get("books", []):
+            if not isinstance(raw_book, dict):
+                continue
+            restored_book = dict(raw_book)
+            restored_book.pop("cloud_id", None)
+            restored_book.pop("web_photo_source_id", None)
+            restored_books.append(restored_book)
+        payloads[BOOKS_FILE] = restored_books
+
+    if is_data or is_legacy:
+        load_expenses()
+        payloads.update({
+            ORDERS_FILE: data.get("orders", {}),
+            USERS_FILE: data.get("users", {}),
+            FAVORITES_FILE: data.get("favorites", {}),
+            RATINGS_FILE: data.get("ratings", {}),
+            RESTOCK_FILE: data.get("restock_subscribers", {}),
+            EXPENSES_FILE: data.get("expenses", expenses),
+        })
 
     temp_files = []
     try:
@@ -300,7 +326,6 @@ def restore_backup_file(path):
                 f.flush()
                 os.fsync(f.fileno())
             temp_files.append((tmp, target))
-
         for tmp, target in temp_files:
             os.replace(tmp, target)
     except Exception:
@@ -312,19 +337,18 @@ def restore_backup_file(path):
                 pass
         raise
 
-    load_books()
-    load_orders()
-    load_users()
-    load_favorites()
-    load_ratings()
-    load_restock()
-    load_expenses()
+    if is_books or is_legacy:
+        load_books()
+    if is_data or is_legacy:
+        load_orders()
+        load_users()
+        load_favorites()
+        load_ratings()
+        load_restock()
+        load_expenses()
 
-    # Backup tiklangandan keyin eski foydalanuvchi sessiyalari va savatchalari
-    # yangi ma'lumotlar bilan aralashib ketmasligi uchun tozalanadi.
     carts.clear()
     states.clear()
-
     return len(books), len(orders), len(users)
 
 
@@ -3038,14 +3062,29 @@ def handle_message(message):
 
         if text == "💾 Backup":
             try:
-                backup = create_backup()
+                stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                books_backup = create_books_backup()
+                data_backup = create_data_backup()
                 send_document(
                     chat_id,
-                    "muhajeer_books_backup.json",
-                    backup,
-                    "💾 Backup tayyor. Shu faylni saqlab qo‘ying. Yangi kod/deploydan keyin ma'lumotlarni tiklash uchun kerak bo‘ladi."
+                    f"muhajeer_books_kitoblar_{stamp}.json",
+                    books_backup,
+                    "📚 KITOBLAR BACKUP — faqat kitoblar, narxlar, qoldiq va kitob ma'lumotlari."
                 )
-                send(chat_id, "✅ Backup yuborildi. Uni telefoningizga yoki Telegramdagi Saved Messages'ga saqlab qo‘ying.", admin_menu())
+                send_document(
+                    chat_id,
+                    f"muhajeer_books_malumotlar_{stamp}.json",
+                    data_backup,
+                    "🗂 MA'LUMOTLAR BACKUP — buyurtmalar, foydalanuvchilar, sevimlilar, reytinglar va xarajatlar."
+                )
+                send(
+                    chat_id,
+                    "✅ 2 ta alohida backup fayl yuborildi:\n\n"
+                    "1️⃣ 📚 Kitoblar\n"
+                    "2️⃣ 🗂 Buyurtmalar va boshqa ma'lumotlar\n\n"
+                    "Ikkalasini ham saqlab qo'ying.",
+                    admin_menu()
+                )
             except Exception as e:
                 send(chat_id, f"❌ Backup yaratilmadi: {e}", admin_menu())
             return
@@ -3055,8 +3094,8 @@ def handle_message(message):
             send(
                 chat_id,
                 "📥 Backup tiklash\n\n"
-                "Oldin bot bergan `muhajeer_books_backup.json` faylini shu yerga yuboring.\n\n"
-                "⚠️ Backup tiklanganda hozirgi kitoblar, buyurtmalar va foydalanuvchilar ma'lumotlari backupdagi holat bilan almashtiriladi.\n\n"
+                "Bot bergan 📚 Kitoblar yoki 🗂 Ma'lumotlar backup JSON fayllaridan birini shu yerga yuboring.\n\n"
+                "⚠️ Qaysi backup turi yuborilsa, faqat o'sha bo'lim backupdagi holat bilan almashtiriladi.\n\n"
                 "❌ Bekor qilish uchun tugmani bosing.",
                 {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True}
             )
