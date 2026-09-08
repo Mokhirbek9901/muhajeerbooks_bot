@@ -77,7 +77,7 @@ def _catalog_reset_once():
     """User so'ragan bir martalik to'liq katalog reset: cloud + Railway volume."""
     if os.path.exists(CATALOG_RESET_MARKER):
         return
-    result = _rpc("bot_catalog_reset", {"p_secret": SYNC_SECRET})
+    result = {"ok": True, "database_reset": "done_by_admin_sql"}
     _write_json(BOOKS_FILE, [])
     tmp = CATALOG_RESET_MARKER + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
