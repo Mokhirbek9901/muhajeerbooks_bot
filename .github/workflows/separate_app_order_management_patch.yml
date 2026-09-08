@@ -1,0 +1,36 @@
+name: Separate app and bot order controls
+
+on:
+  push:
+    paths:
+      - 'tools/separate_app_order_management_patch.py'
+      - '.github/workflows/separate_app_order_management_patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply patch
+        run: python tools/separate_app_order_management_patch.py
+      - name: Validate
+        run: |
+          python -m py_compile bot.py sync_wrapper.py cloud_bridge.py
+          grep -q "faqat ilova admin panelidan boshqariladi" sync_wrapper.py
+          grep -q "ILOVADAN ZAKAS" bot.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py sync_wrapper.py
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Make app orders read-only in Telegram bot"
+          git push origin main
