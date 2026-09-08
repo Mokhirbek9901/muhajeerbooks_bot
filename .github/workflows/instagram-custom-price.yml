@@ -1,0 +1,30 @@
+name: Instagram custom sale price
+
+on:
+  push:
+    paths:
+      - '.github/instagram-custom-price.trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply patch
+        run: python .github/instagram-custom-price.py
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Commit and clean temporary files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/instagram-custom-price.py .github/instagram-custom-price.trigger .github/workflows/instagram-custom-price.yml
+          git add bot.py .github
+          git commit -m "Support custom prices for Instagram sales"
+          git push origin main
