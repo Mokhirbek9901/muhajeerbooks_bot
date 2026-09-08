@@ -9,6 +9,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -80,6 +81,62 @@ def _push_books(items):
 def _pull_books():
     rows = _rpc("bot_sync_pull", {"p_secret": SYNC_SECRET})
     return rows if isinstance(rows, list) else []
+
+
+def _pull_tombstones():
+    rows = _rpc("bot_sync_tombstones_pull", {"p_secret": SYNC_SECRET})
+    return rows if isinstance(rows, list) else []
+
+
+def _parse_iso(value):
+    text = str(value or '').strip()
+    if not text:
+        return None
+    if text.endswith('Z'):
+        text = text[:-1] + '+00:00'
+    try:
+        return datetime.fromisoformat(text)
+    except Exception:
+        return None
+
+
+def _remove_tombstoned_local(items, tombstones):
+    tomb_by_id = {}
+    for row in tombstones or []:
+        try:
+            tid = int(row.get('telegram_id') or 0)
+        except Exception:
+            continue
+        if tid > 0:
+            tomb_by_id[tid] = row
+
+    cleaned = []
+    removed = []
+    for book in items or []:
+        if not isinstance(book, dict):
+            continue
+        try:
+            tid = int(book.get('id') or 0)
+        except Exception:
+            tid = 0
+        tomb = tomb_by_id.get(tid)
+        if not tomb:
+            cleaned.append(book)
+            continue
+
+        book_cloud = str(book.get('cloud_id') or '').strip()
+        tomb_cloud = str(tomb.get('cloud_id') or '').strip()
+        created = _parse_iso(book.get('created_at'))
+        deleted = _parse_iso(tomb.get('deleted_at'))
+
+        # Aynan o'chirilgan cloud nusxasi yoki tombstonedan eski lokal nusxa — olib tashlanadi.
+        stale_same_cloud = bool(book_cloud and tomb_cloud and book_cloud == tomb_cloud)
+        stale_by_time = not (created and deleted and created > deleted)
+        if stale_same_cloud or stale_by_time:
+            removed.append(book)
+            continue
+        cleaned.append(book)
+    return cleaned, removed
 
 
 def _book_ids(items):
@@ -547,6 +604,11 @@ def sync_loop():
     while True:
         try:
             local = _read_books()
+            tombstones = _pull_tombstones()
+            local, removed_stale = _remove_tombstoned_local(local, tombstones)
+            if removed_stale:
+                _write_json(BOOKS_FILE, local)
+                print("Tombstone bo‘yicha lokal katalog tozalandi:", ", ".join(str(b.get('name') or b.get('id')) for b in removed_stale))
             if initialized and _prepare_bot_image_changes(local, last_local_books):
                 _write_json(BOOKS_FILE, local)
 

@@ -1599,10 +1599,20 @@ def order_cost_summary(order):
     total_cost=0; missing_qty=0; items=order.get("items")
     if isinstance(items,list) and items:
         for item in items:
-            qty=int(item.get("qty",0) or 0); unit_cost=item.get("unit_cost")
-            if unit_cost is None:
-                b=find_book(item.get("book_id")); unit_cost=int(b.get("cost_price",0) or 0) if b else 0
-            unit_cost=int(unit_cost or 0); total_cost += unit_cost*qty; missing_qty += qty if unit_cost<=0 else 0
+            qty=int(item.get("qty",0) or 0)
+            try:
+                unit_cost=int(item.get("unit_cost") or 0)
+            except Exception:
+                unit_cost=0
+            # Buyurtma vaqtida tannarx 0 bo'lgan bo'lsa, keyinchalik kitobga
+            # tannarx kiritilganda tarixiy hisobot ham avtomatik aniqlashadi.
+            if unit_cost <= 0:
+                b=find_book(item.get("book_id"))
+                current_cost=int(b.get("cost_price",0) or 0) if b else 0
+                if current_cost > 0:
+                    unit_cost=current_cost
+            total_cost += unit_cost*qty
+            missing_qty += qty if unit_cost<=0 else 0
         return total_cost,missing_qty
     for bid,qty in order.get("cart",{}).items():
         qty=int(qty); b=find_book(bid); unit_cost=int(b.get("cost_price",0) or 0) if b else 0; total_cost += unit_cost*qty; missing_qty += qty if unit_cost<=0 else 0
@@ -2059,7 +2069,7 @@ def admin_report_text(period="all"):
         return True
 
     selected = [o for o in orders.values() if included(o) and int(o.get("order_id", 0) or 0) >= STATS_RESET_ORDER_ID]
-    paid_statuses = ("paid", "shipped", "delivered")
+    paid_statuses = ("shipped", "delivered")
     successful = [o for o in selected if o.get("status") in paid_statuses]
 
     pending = sum(1 for o in selected if o.get("status") == "pending")
@@ -4622,23 +4632,45 @@ def handle_callback(callback):
         if not is_admin(chat_id):
             return
 
-        book_id = int(data.split("_", 1)[1])
+        try:
+            book_id = int(data.split("_", 1)[1])
+        except Exception:
+            send(chat_id, "❌ Kitob ID noto‘g‘ri.", admin_menu())
+            return
+
+        refresh_books()
         book = find_book(book_id)
-
-        if book:
-            try:
-                cloud_bridge.delete_book(book)
-            except Exception as e:
-                send(chat_id, f"❌ Kitob o‘chirilmadi: {e}", admin_menu())
-                return
-            books.remove(book)
-            save_books()
-
+        if not book:
             send(
                 chat_id,
-                f"🗑 O‘chirildi: {book['name']}",
+                "ℹ️ Bu eski tugma. Kitob allaqachon o‘chirilgan yoki ro‘yxat yangilangan.\n"
+                "Kitoblar ro‘yxatini qayta oching.",
                 admin_menu()
             )
+            return
+
+        try:
+            cloud_bridge.delete_book(book)
+        except Exception as e:
+            send(chat_id, f"❌ Kitob o‘chirilmadi: {e}", admin_menu())
+            return
+
+        # Bir xil ID/cloud_id bilan qolgan stale lokal nusxalarni ham birdan tozalaymiz.
+        target_cloud = str(book.get("cloud_id") or "")
+        target_id = str(book.get("id") or "")
+        books[:] = [
+            b for b in books
+            if str(b.get("id") or "") != target_id
+            and (not target_cloud or str(b.get("cloud_id") or "") != target_cloud)
+        ]
+        save_books()
+        refresh_books()
+
+        send(
+            chat_id,
+            f"🗑 O‘chirildi: {book['name']}\n\n✅ Bot va ilova katalogidan olib tashlandi.",
+            edit_book_menu() if books else admin_menu()
+        )
         return
 
     # =========================
