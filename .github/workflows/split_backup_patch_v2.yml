@@ -29,5 +29,4 @@ jobs:
             exit 0
           fi
           git commit -m "Split backups and clear old order history"
-          git pull --rebase origin main
           git push origin main
