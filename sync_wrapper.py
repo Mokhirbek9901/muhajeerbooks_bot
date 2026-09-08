@@ -579,23 +579,8 @@ def _notify_admin_app_order(order):
         + f"\n💵 JAMI: ₩{int(order.get('grand_total',0)):,}"
         + proof_note
     )
-    kb = {
-        "inline_keyboard": [
-            [
-                {
-                    "text": "✅ Buyurtmani qabul qilish",
-                    "callback_data": f"accept_{order.get('order_id')}",
-                }
-            ],
-            [
-                {
-                    "text": "📦 Buyurtmani ochish",
-                    "callback_data": f"adminorder_{order.get('order_id')}",
-                }
-            ],
-        ]
-    }
-    _telegram_send(ADMIN_ID, text, kb)
+    text += "\n\n🔒 Bu buyurtma faqat ilova admin panelidan boshqariladi."
+    _telegram_send(ADMIN_ID, text)
 
 
 def _book_fingerprint(book):

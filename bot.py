@@ -2250,10 +2250,16 @@ def admin_orders_keyboard(status_filter="all"):
 
 
 def admin_order_detail(order):
-    return order_receipt_text(order)
+    text = order_receipt_text(order)
+    if str(order.get("source") or "telegram") == "app":
+        return "📱 ILOVADAN ZAKAS — boshqarish faqat ilovada\n\n" + text
+    return text
 
 
 def admin_order_status_keyboard(order_id, status):
+    order = orders.get(str(order_id)) or {}
+    if str(order.get("source") or "telegram") == "app":
+        return []
     buttons=[]
     if status == "pending":
         buttons.append([{ "text":"✅ Buyurtmani qabul qilish", "callback_data":f"accept_{order_id}" }])
