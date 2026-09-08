@@ -8,6 +8,7 @@ import io
 import cloud_bridge
 
 from datetime import datetime, timedelta
+from difflib import SequenceMatcher
 
 
 def _local_datetime(raw):
@@ -1869,20 +1870,45 @@ def admin_users_texts():
 
 def search_books(query):
     refresh_books()
-    q = query.lower().strip()
-    result = []
+    q = _search_key(query)
     if not q:
-        return result
+        return []
+
+    ranked = []
+    threshold = _fuzzy_threshold(q)
+
     for b in books:
-        fields = [
-            str(b.get("name", "")),
-            str(b.get("author", "")),
-            str(b.get("category", "")),
-            str(b.get("description", ""))
-        ]
-        if any(q in field.lower() for field in fields):
-            result.append(b)
-    return result
+        name = _search_key(b.get("name", ""))
+        author = _search_key(b.get("author", ""))
+        category = _search_key(b.get("category", ""))
+
+        # Exact/partial results always rank first.
+        exact_score = 0.0
+        for field in (name, author, category):
+            if not field:
+                continue
+            if q == field:
+                exact_score = max(exact_score, 1.0)
+            elif len(q) >= 2 and q in field:
+                exact_score = max(exact_score, 0.97)
+
+        fuzzy_score = max(
+            _fuzzy_ratio(q, name),
+            _fuzzy_ratio(q, author) if author else 0.0,
+        )
+        score = max(exact_score, fuzzy_score)
+
+        if exact_score > 0 or score >= threshold:
+            ranked.append((score, b))
+
+    ranked.sort(
+        key=lambda item: (
+            -item[0],
+            str(item[1].get("name", "")).casefold()
+        )
+    )
+    return [b for _, b in ranked[:30]]
+
 
 
 def search_books_keyboard(items):
@@ -2174,12 +2200,83 @@ def admin_order_status_keyboard(order_id, status):
     return {"inline_keyboard":buttons}
 
 
-def _instagram_name_key(value):
-    value = str(value or "").casefold().replace("’", "'").replace("‘", "'").replace("ʻ", "'")
-    cleaned = []
+def _search_key(value):
+    """Search text: lowercase, emoji/punctuation ignored, Uzbek apostrophes ignored."""
+    value = str(value or "").casefold()
+    apostrophes = {"'", "’", "‘", "ʻ", "ʼ", "`", "´"}
+    out = []
     for ch in value:
-        cleaned.append(ch if ch.isalnum() else " ")
-    return " ".join("".join(cleaned).split())
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in apostrophes:
+            # o‘g‘irlangan -> ogirlangan, kambag‘al -> kambagal
+            continue
+        else:
+            out.append(" ")
+    return " ".join("".join(out).split())
+
+
+def _fuzzy_threshold(value):
+    n = len(str(value or "").replace(" ", ""))
+    if n <= 3:
+        return 0.86
+    if n <= 5:
+        return 0.74
+    return 0.68
+
+
+def _fuzzy_ratio(a, b):
+    a = _search_key(a)
+    b = _search_key(b)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    if len(a) >= 3 and a in b:
+        return 0.98
+    if len(b) >= 4 and b in a:
+        return 0.95
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _instagram_name_key(value):
+    return _search_key(value)
+
+
+def _instagram_fuzzy_matches(query):
+    """Return one confident book, or several near-equal candidates if ambiguous."""
+    q = _search_key(query)
+    if not q:
+        return []
+
+    # First preserve useful partial-name behavior.
+    contains = []
+    for b in books:
+        name_key = _search_key(b.get("name", ""))
+        if q and (q in name_key or (len(name_key) >= 4 and name_key in q)):
+            contains.append(b)
+    if len(contains) == 1:
+        return contains
+    if len(contains) > 1:
+        return contains[:4]
+
+    scored = []
+    for b in books:
+        score = _fuzzy_ratio(q, b.get("name", ""))
+        scored.append((score, b))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if not scored:
+        return []
+
+    threshold = _fuzzy_threshold(q)
+    best = scored[0][0]
+    if best < threshold:
+        return []
+
+    # If two names are almost equally likely, don't silently choose the wrong stock item.
+    close = [b for score, b in scored if score >= threshold and score >= best - 0.045]
+    return close[:4]
+
 
 
 def _instagram_qty_token(token):
@@ -2253,13 +2350,7 @@ def parse_instagram_sale_items(text):
         qkey = _instagram_name_key(query)
         matches = exact.get(qkey, [])
         if not matches:
-            matches = [
-                b for b in books
-                if qkey and (
-                    qkey in _instagram_name_key(b.get("name", ""))
-                    or _instagram_name_key(b.get("name", "")) in qkey
-                )
-            ]
+            matches = _instagram_fuzzy_matches(query)
 
         if len(matches) != 1:
             if not matches:
@@ -3664,7 +3755,7 @@ def handle_message(message):
         states[chat_id] = {"action": "search"}
         send(
             chat_id,
-            "🔎 Kitob nomini yozing.\nMasalan: Yovuz daho"
+            "🔎 Kitob nomini yozing.\nMasalan: Yovuz daho\n\nBir-ikki harf xato bo‘lsa ham topishga harakat qilaman."
         )
         return
 
