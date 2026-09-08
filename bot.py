@@ -3535,7 +3535,12 @@ def handle_message(message):
                 else:
                     send(chat_id, "📸 Iltimos, kitob rasmini yuboring yoki — deb yozing.")
                     return
-                new_id = max([int(b["id"]) for b in books], default=0) + 1
+                # O‘chirilgan kitob IDsi qayta ishlatilmasin. Timestamp-asosli ID
+                # eski tombstone bilan to‘qnashmaydi va cloud syncda kitob qayta tirilmaydi.
+                new_id = max(
+                    max([int(b["id"]) for b in books], default=0) + 1,
+                    int(time.time() * 1000),
+                )
                 new_book = {"id": new_id, "name": state["name"], "price": state["price"], "cost_price": state.get("cost_price", 0), "stock": state["stock"],
                             "category": state.get("category", "Boshqalar"), "cover": state.get("cover", "Ko‘rsatilmagan"),
                             "author": state.get("author", "Ko‘rsatilmagan"),
