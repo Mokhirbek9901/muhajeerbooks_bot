@@ -258,6 +258,18 @@ def restore_backup_file(path):
     if not isinstance(data, dict) or not isinstance(data.get("books"), list):
         raise ValueError("Backup fayli noto'g'ri yoki eski formatda.")
 
+    # To'liq katalog resetidan keyin backupdagi eski Supabase UUID (cloud_id)
+    # mavjud bo'lmaydi. Telegram kitob IDlarini saqlaymiz, cloud_idni esa olib
+    # tashlaymiz — sync ularni yangi cloud kitob sifatida qayta yaratadi.
+    restored_books = []
+    for raw_book in data.get("books", []):
+        if not isinstance(raw_book, dict):
+            continue
+        restored_book = dict(raw_book)
+        restored_book.pop("cloud_id", None)
+        restored_book.pop("web_photo_source_id", None)
+        restored_books.append(restored_book)
+
     load_expenses()
     restored = {
         "orders": data.get("orders", {}),
@@ -270,7 +282,7 @@ def restore_backup_file(path):
 
     # Avval vaqtinchalik fayllarga yozamiz. Hammasi muvaffaqiyatli bo'lsa almashtiramiz.
     payloads = {
-        BOOKS_FILE: data["books"],
+        BOOKS_FILE: restored_books,
         ORDERS_FILE: restored["orders"],
         USERS_FILE: restored["users"],
         FAVORITES_FILE: restored["favorites"],

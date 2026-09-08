@@ -21,6 +21,7 @@ DATA_DIR = "/data" if os.path.isdir("/data") else "."
 BOOKS_FILE = os.path.join(DATA_DIR, "books.json")
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 SYNC_INTERVAL = 2
+CATALOG_RESET_MARKER = os.path.join(DATA_DIR, "catalog_full_reset_20260908_v1.done")
 
 
 def _rpc(name, payload):
@@ -70,6 +71,21 @@ def _read_books():
 def _read_orders():
     data = _read_json(ORDERS_FILE, {})
     return data if isinstance(data, dict) else {}
+
+
+def _catalog_reset_once():
+    """User so'ragan bir martalik to'liq katalog reset: cloud + Railway volume."""
+    if os.path.exists(CATALOG_RESET_MARKER):
+        return
+    result = _rpc("bot_catalog_reset", {"p_secret": SYNC_SECRET})
+    _write_json(BOOKS_FILE, [])
+    tmp = CATALOG_RESET_MARKER + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(result or {"ok": True}, ensure_ascii=False))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, CATALOG_RESET_MARKER)
+    print("CATALOG_FULL_RESET_20260908:", result)
 
 
 def _push_books(items):
@@ -753,6 +769,9 @@ def sync_loop():
 
 
 if SUPABASE_URL and SUPABASE_ANON_KEY and SYNC_SECRET:
+    # Sync boshlanishidan OLDIN ikkala katalogni atomik reset qilamiz; aks holda
+    # eski Railway books.json cloudga yana qayta push bo'lib ketishi mumkin.
+    _catalog_reset_once()
     threading.Thread(target=sync_loop, daemon=True, name="supabase-live-sync").start()
 else:
     print("Supabase sync environment variablelari topilmadi; bot odatdagi rejimda ishlaydi.")
