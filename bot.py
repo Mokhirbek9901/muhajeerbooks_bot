@@ -1608,6 +1608,30 @@ def order_cost_summary(order):
         qty=int(qty); b=find_book(bid); unit_cost=int(b.get("cost_price",0) or 0) if b else 0; total_cost += unit_cost*qty; missing_qty += qty if unit_cost<=0 else 0
     return total_cost,missing_qty
 
+def _order_report_total(order):
+    if str(order.get("source", "")) == "instagram":
+        received = int(order.get("instagram_received_total", 0) or 0)
+        if received > 0:
+            return received
+    return int(order.get("grand_total", 0) or 0)
+
+
+def _order_report_delivery(order):
+    if str(order.get("source", "")) == "instagram":
+        received = int(order.get("instagram_received_total", 0) or 0)
+        if received > 0:
+            return int(DELIVERY_FEE) if str(order.get("postage_paid_by", "")) == "customer" else 0
+    return int(order.get("delivery_fee", DELIVERY_FEE) or 0)
+
+
+def _order_report_books(order):
+    if str(order.get("source", "")) == "instagram":
+        received = int(order.get("instagram_received_total", 0) or 0)
+        if received > 0:
+            return max(0, received - _order_report_delivery(order))
+    return int(order.get("total", 0) or 0)
+
+
 def daily_admin_report_text():
     load_orders(); load_users(); now=datetime.now(); successful=[]
     for o in orders.values():
@@ -1615,7 +1639,7 @@ def daily_admin_report_text():
         try: dt=_local_datetime(o.get("created_at",""))
         except Exception: continue
         if dt.date()==now.date() and o.get("status") in ("paid","shipped","delivered"): successful.append(o)
-    revenue=sum(int(o.get("grand_total",0) or 0) for o in successful); books_revenue=sum(int(o.get("total",0) or 0) for o in successful); delivery_revenue=sum(int(o.get("delivery_fee",DELIVERY_FEE) or 0) for o in successful); sold_qty=sum(sum(int(q) for q in o.get("cart",{}).values()) for o in successful)
+    revenue=sum(_order_report_total(o) for o in successful); books_revenue=sum(_order_report_books(o) for o in successful); delivery_revenue=sum(_order_report_delivery(o) for o in successful); sold_qty=sum(sum(int(q) for q in o.get("cart",{}).values()) for o in successful)
     cost_of_goods=0; missing_cost_qty=0
     for o in successful:
         c,m=order_cost_summary(o); cost_of_goods+=c; missing_cost_qty+=m
@@ -2461,6 +2485,15 @@ def save_instagram_sale(state):
         "postage_paid_by": "customer" if customer_pays_postage else "admin",
         "created_at": datetime.now().isoformat(timespec="seconds")
     }
+    # Instagram savdoda statistika uchun aynan admin kiritgan real jami summa ishlatiladi.
+    # Mijoz pochta to‘lagan bo‘lsa, 4,000 won yetkazish sifatida ajratiladi;
+    # qolgan qismi kitob savdosi hisoblanadi. Admin pochta to‘lasa, jami summa kitob savdosi.
+    order["total"] = int(books_total)
+    order["delivery_fee"] = int(delivery_fee)
+    order["grand_total"] = int(grand_total)
+    order["instagram_received_total"] = int(received_total)
+    order["postage_paid_by"] = "customer" if customer_pays_postage else "admin"
+
     orders[order_id] = order
     save_orders()
     return order
