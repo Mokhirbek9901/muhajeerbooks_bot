@@ -25,96 +25,85 @@ jobs:
           bot = Path('bot.py')
           s = bot.read_text(encoding='utf-8')
 
-          old_keyboard = '''def admin_order_status_keyboard(order_id, status):
-              buttons=[]
-              if status == "pending":
-                  buttons.append([{ "text":"💳 To‘lov qilindi", "callback_data":f"paid_{order_id}" }])
-                  buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
-              elif status == "accepted":
-                  buttons.append([{ "text":"💳 To‘lov qilindi", "callback_data":f"paid_{order_id}" }])
-                  buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
-              elif status == "paid":
-                  buttons.append([{ "text":"🚚 Jo‘natildi", "callback_data":f"ship_{order_id}" }])
-              elif status == "shipped":
-                  buttons.append([{ "text":"✅ Yetkazildi", "callback_data":f"deliver_{order_id}" }])
-              buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
-              return {"inline_keyboard":buttons}
-          '''.replace('              ', '')
-
           new_keyboard = '''def admin_order_status_keyboard(order_id, status):
-              buttons=[]
-              if status == "pending":
-                  buttons.append([{ "text":"✅ Buyurtmani qabul qilish", "callback_data":f"accept_{order_id}" }])
-                  buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
-              elif status in ("accepted", "paid"):
-                  buttons.append([{ "text":"🚚 Jo‘natildi", "callback_data":f"ship_{order_id}" }])
-                  if status == "accepted":
-                      buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
-              # Jo‘natildi — yakuniy bosqich. Yetkazildi tugmasi endi yo‘q.
-              buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
-              return {"inline_keyboard":buttons}
-          '''.replace('              ', '')
-
-          if old_keyboard in s:
-              s = s.replace(old_keyboard, new_keyboard, 1)
-          elif '"✅ Buyurtmani qabul qilish"' not in s:
-              raise SystemExit('admin_order_status_keyboard pattern not found')
+    buttons=[]
+    if status == "pending":
+        buttons.append([{ "text":"✅ Buyurtmani qabul qilish", "callback_data":f"accept_{order_id}" }])
+        buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
+    elif status in ("accepted", "paid"):
+        buttons.append([{ "text":"🚚 Jo‘natildi", "callback_data":f"ship_{order_id}" }])
+        if status == "accepted":
+            buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
+    # Jo‘natildi — yakuniy bosqich. Yetkazildi tugmasi endi yo‘q.
+    buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
+    return {"inline_keyboard":buttons}
+'''
+          if '"✅ Buyurtmani qabul qilish"' not in s:
+              s, n = re.subn(
+                  r'def admin_order_status_keyboard\(order_id, status\):\n.*?^    return \{"inline_keyboard":buttons\}\n',
+                  new_keyboard,
+                  s,
+                  count=1,
+                  flags=re.S | re.M,
+              )
+              if n != 1:
+                  raise SystemExit('admin_order_status_keyboard patch failed')
 
           marker = '''    # =========================
-              # ADMIN: SHIPPED
-              # =========================
-          '''.replace('              ', '')
+    # ADMIN: SHIPPED
+    # =========================
+'''
           accept_block = '''    # =========================
-              # ADMIN: ACCEPT ORDER
-              # =========================
+    # ADMIN: ACCEPT ORDER
+    # =========================
 
-              if data.startswith("accept_"):
-                  if not is_admin(chat_id):
-                      return
-                  order_id = data.split("_", 1)[1]
-                  order = orders.get(order_id)
-                  if not order:
-                      send(chat_id, "❌ Zakaz topilmadi.")
-                      return
-                  if order.get("status") != "pending":
-                      send(chat_id, "⚠️ Bu zakaz allaqachon qayta ishlangan.")
-                      return
-                  try:
-                      _cloud_set_order_status(order, "accepted")
-                  except Exception as e:
-                      send(chat_id, f"❌ Buyurtma qabul qilinmadi: {e}")
-                      return
-                  order["status"] = "accepted"
-                  save_orders()
-                  refresh_books()
-                  for book_id in order.get("cart", {}):
-                      book = find_book(book_id)
-                      if not book:
-                          continue
-                      remaining = int(book.get("stock", 0))
-                      if remaining == 0:
-                          send(chat_id, f"❌ OMBORDA TUGADI: {book['name']}")
-                      elif remaining <= LOW_STOCK_LIMIT:
-                          send(chat_id, f"⚠️ KAM QOLDI: {book['name']} — {remaining} ta")
-                  send(
-                      chat_id,
-                      f"✅ Buyurtma №{order_id} qabul qilindi.\\n\\n📦 Ombor bot va programmada bir xil yangilandi.",
-                      admin_order_status_keyboard(order_id, "accepted")
-                  )
-                  customer_chat = int(order.get("chat_id") or 0)
-                  if customer_chat > 0 and str(order.get("source") or "telegram") != "app":
-                      send(
-                          customer_chat,
-                          "✅ BUYURTMANGIZ QABUL QILINDI!\\n\\n" + order_receipt_text(order) +
-                          "\\n\\n📦 Kitoblaringiz pochtaga topshirilganda sizga alohida xabar yuboriladi.",
-                          main_menu(customer_chat)
-                      )
-                  return
+    if data.startswith("accept_"):
+        if not is_admin(chat_id):
+            return
+        order_id = data.split("_", 1)[1]
+        order = orders.get(order_id)
+        if not order:
+            send(chat_id, "❌ Zakaz topilmadi.")
+            return
+        if order.get("status") != "pending":
+            send(chat_id, "⚠️ Bu zakaz allaqachon qayta ishlangan.")
+            return
+        try:
+            _cloud_set_order_status(order, "accepted")
+        except Exception as e:
+            send(chat_id, f"❌ Buyurtma qabul qilinmadi: {e}")
+            return
+        order["status"] = "accepted"
+        save_orders()
+        refresh_books()
+        for book_id in order.get("cart", {}):
+            book = find_book(book_id)
+            if not book:
+                continue
+            remaining = int(book.get("stock", 0))
+            if remaining == 0:
+                send(chat_id, f"❌ OMBORDA TUGADI: {book['name']}")
+            elif remaining <= LOW_STOCK_LIMIT:
+                send(chat_id, f"⚠️ KAM QOLDI: {book['name']} — {remaining} ta")
+        send(
+            chat_id,
+            f"✅ Buyurtma №{order_id} qabul qilindi.\n\n📦 Ombor bot va programmada bir xil yangilandi.",
+            admin_order_status_keyboard(order_id, "accepted")
+        )
+        customer_chat = int(order.get("chat_id") or 0)
+        if customer_chat > 0 and str(order.get("source") or "telegram") != "app":
+            send(
+                customer_chat,
+                "✅ BUYURTMANGIZ QABUL QILINDI!\n\n" + order_receipt_text(order) +
+                "\n\n📦 Kitoblaringiz pochtaga topshirilganda sizga alohida xabar yuboriladi.",
+                main_menu(customer_chat)
+            )
+        return
 
-              # =========================
-              # ADMIN: SHIPPED
-              # =========================
-          '''.replace('              ', '')
+    # =========================
+    # ADMIN: SHIPPED
+    # =========================
+'''
           if 'if data.startswith("accept_"):' not in s:
               if marker not in s:
                   raise SystemExit('shipped marker not found')
@@ -126,26 +115,34 @@ jobs:
               1,
           )
 
-          delivered_re = re.compile(
+          # App orderdan Telegram mijoziga xabar yubormaymiz.
+          s = s.replace(
+              'if customer_chat > 0:\n            send(\n                customer_chat,\n                "🚚 Kitobingiz jo‘natildi!',
+              'if customer_chat > 0 and str(order.get("source") or "telegram") != "app":\n            send(\n                customer_chat,\n                "🚚 Kitobingiz jo‘natildi!',
+              1,
+          )
+
+          # Eski Yetkazildi callback qolsa ham holatni o‘zgartirmasin.
+          delivered_pattern = re.compile(
               r'    # =========================\n    # ADMIN: DELIVERED\n    # =========================\n\n'
-              r'    if data\.startswith\("deliver_"\):.*?        return\n\n'
+              r'    if data\.startswith\("deliver_"\):.*?^        return\n\n'
               r'    # =========================\n    # ADMIN: PAYMENT CONFIRMED\n    # =========================',
-              re.S,
+              re.S | re.M,
           )
           delivered_stub = '''    # =========================
-              # ADMIN: DELIVERED (legacy button)
-              # =========================
+    # ADMIN: DELIVERED (legacy button)
+    # =========================
 
-              if data.startswith("deliver_"):
-                  if is_admin(chat_id):
-                      send(chat_id, "ℹ️ «Yetkazildi» bosqichi olib tashlangan. 🚚 Jo‘natildi — yakuniy holat.", admin_menu())
-                  return
+    if data.startswith("deliver_"):
+        if is_admin(chat_id):
+            send(chat_id, "ℹ️ «Yetkazildi» bosqichi olib tashlangan. 🚚 Jo‘natildi — yakuniy holat.", admin_menu())
+        return
 
-              # =========================
-              # ADMIN: PAYMENT CONFIRMED
-              # ========================='''.replace('              ', '')
-          if delivered_re.search(s):
-              s = delivered_re.sub(delivered_stub, s, count=1)
+    # =========================
+    # ADMIN: PAYMENT CONFIRMED
+    # ========================='''
+          if delivered_pattern.search(s):
+              s = delivered_pattern.sub(delivered_stub, s, count=1)
 
           bot.write_text(s, encoding='utf-8')
 
@@ -153,93 +150,78 @@ jobs:
           w = sync.read_text(encoding='utf-8')
           old_link = '    linked_chat = int(row.get("telegram_chat_id") or existing.get("chat_id") or 0)\n'
           new_link = '''    # Ilovadan kelgan buyurtma Telegram mijoziga avtomatik bog‘lanmaydi.
-              # Telegram akkauntining SIM raqamini bot ko‘rmaydi; telefon bo‘yicha taxminiy
-              # bog‘lash boshqa akkauntga xabar yuborishiga sabab bo‘lishi mumkin.
-              source = str(row.get("source") or "app")
-              linked_chat = 0 if source == "app" else int(
-                  row.get("telegram_chat_id") or existing.get("chat_id") or 0
-              )
-          '''.replace('              ', '')
+    # Telegram akkauntining SIM raqamini bot ko‘rmaydi; telefon bo‘yicha taxminiy
+    # bog‘lash boshqa akkauntga xabar yuborishiga sabab bo‘lishi mumkin.
+    source = str(row.get("source") or "app")
+    linked_chat = 0 if source == "app" else int(
+        row.get("telegram_chat_id") or existing.get("chat_id") or 0
+    )
+'''
           if old_link in w:
               w = w.replace(old_link, new_link, 1)
           elif 'linked_chat = 0 if source == "app"' not in w:
               raise SystemExit('sync_wrapper linked_chat pattern not found')
 
-          old_kb = '''    kb = {
-              "inline_keyboard": [
-                  [
-                      {
-                          "text": "📦 Buyurtmani ochish",
-                          "callback_data": f"adminorder_{order.get('order_id')}",
-                      }
-                  ]
-              ]
-          }
-          '''.replace('              ', '')
-          new_kb = '''    kb = {
-              "inline_keyboard": [
-                  [
-                      {
-                          "text": "✅ Buyurtmani qabul qilish",
-                          "callback_data": f"accept_{order.get('order_id')}",
-                      }
-                  ],
-                  [
-                      {
-                          "text": "📦 Buyurtmani ochish",
-                          "callback_data": f"adminorder_{order.get('order_id')}",
-                      }
-                  ],
-              ]
-          }
-          '''.replace('              ', '')
-          if old_kb in w:
-              w = w.replace(old_kb, new_kb, 1)
-          elif '"✅ Buyurtmani qabul qilish"' not in w:
-              raise SystemExit('app order notification keyboard pattern not found')
+          notify_start = w.find('def _notify_admin_app_order(order):')
+          if notify_start < 0:
+              raise SystemExit('notify function not found')
+          kb_start = w.find('    kb = {', notify_start)
+          kb_end = w.find('    _telegram_send(ADMIN_ID, text, kb)', kb_start)
+          if kb_start < 0 or kb_end < 0:
+              raise SystemExit('notify keyboard bounds not found')
+          kb_block = '''    kb = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "✅ Buyurtmani qabul qilish",
+                    "callback_data": f"accept_{order.get('order_id')}",
+                }
+            ],
+            [
+                {
+                    "text": "📦 Buyurtmani ochish",
+                    "callback_data": f"adminorder_{order.get('order_id')}",
+                }
+            ],
+        ]
+    }
+'''
+          current_kb = w[kb_start:kb_end]
+          if '✅ Buyurtmani qabul qilish' not in current_kb:
+              w = w[:kb_start] + kb_block + w[kb_end:]
           sync.write_text(w, encoding='utf-8')
 
           bridge = Path('cloud_bridge.py')
           c = bridge.read_text(encoding='utf-8')
-          old_delete = '''def delete_book(book):
-              cloud_id = str(book.get("cloud_id") or "").strip() or None
-              try:
-                  telegram_id = int(book.get("id") or 0)
-              except Exception:
-                  telegram_id = None
-              return rpc(
-                  "bot_sync_delete",
-                  {
-                      "p_secret": SYNC_SECRET,
-                      "p_telegram_id": telegram_id if telegram_id and telegram_id > 0 else None,
-                      "p_cloud_id": cloud_id,
-                  },
+          if 'Kitob server katalogidan o‘chirilmadi' not in c:
+              c, n = re.subn(
+                  r'def delete_book\(book\):\n.*?^    \)\n',
+                  '''def delete_book(book):
+    cloud_id = str(book.get("cloud_id") or "").strip() or None
+    try:
+        telegram_id = int(book.get("id") or 0)
+    except Exception:
+        telegram_id = None
+    payload = {
+        "p_secret": SYNC_SECRET,
+        "p_telegram_id": telegram_id if telegram_id and telegram_id > 0 else None,
+        "p_cloud_id": cloud_id,
+    }
+    result = rpc("bot_sync_delete", payload)
+    try:
+        deleted = int(result or 0)
+    except Exception:
+        deleted = 0
+    if deleted <= 0:
+        raise RuntimeError("Kitob server katalogidan o‘chirilmadi. Qayta urinib ko‘ring.")
+    return deleted
+''',
+                  c,
+                  count=1,
+                  flags=re.S | re.M,
               )
-          '''.replace('              ', '')
-          new_delete = '''def delete_book(book):
-              cloud_id = str(book.get("cloud_id") or "").strip() or None
-              try:
-                  telegram_id = int(book.get("id") or 0)
-              except Exception:
-                  telegram_id = None
-              payload = {
-                  "p_secret": SYNC_SECRET,
-                  "p_telegram_id": telegram_id if telegram_id and telegram_id > 0 else None,
-                  "p_cloud_id": cloud_id,
-              }
-              result = rpc("bot_sync_delete", payload)
-              try:
-                  deleted = int(result or 0)
-              except Exception:
-                  deleted = 0
-              if deleted <= 0:
-                  raise RuntimeError("Kitob server katalogidan o‘chirilmadi. Qayta urinib ko‘ring.")
-              return deleted
-          '''.replace('              ', '')
-          if old_delete in c:
-              c = c.replace(old_delete, new_delete, 1)
-          elif 'Kitob server katalogidan o‘chirilmadi' not in c:
-              raise SystemExit('cloud_bridge delete pattern not found')
+              if n != 1:
+                  raise SystemExit('cloud_bridge delete patch failed')
           bridge.write_text(c, encoding='utf-8')
           PY
 
