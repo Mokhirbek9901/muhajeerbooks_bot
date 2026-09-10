@@ -1602,7 +1602,7 @@ def _page_nav(prefix, page, total):
         row.append({"text": "➡️", "callback_data": f"{prefix}_{page + 1}"})
     return [row]
 
-def edit_book_menu(page=0, chat_id=ADMIN_ID, message_id=None):
+def edit_book_menu(page=0):
     refresh_books()
     items = sorted(books, key=lambda b: str(b.get("name", "")).casefold())
     current, page, total = _admin_page(items, page)
@@ -1612,17 +1612,9 @@ def edit_book_menu(page=0, chat_id=ADMIN_ID, message_id=None):
     }] for b in current]
     buttons.extend(_page_nav("editpage", page, total))
     buttons.append([{"text": "⬅️ Admin panel", "callback_data": "admin"}])
-    markup = {"inline_keyboard": buttons}
-    text = f"✏️ Tahrirlash uchun kitob tanlang: ({page + 1}/{total})"
-    if message_id is not None:
-        try:
-            edit_message(chat_id, message_id, text, markup)
-            return
-        except Exception:
-            pass
-    send(chat_id, text, markup)
+    return {"inline_keyboard": buttons}
 
-def delete_book_menu(page=0, chat_id=ADMIN_ID, message_id=None):
+def delete_book_menu(page=0):
     refresh_books()
     items = sorted(books, key=lambda b: str(b.get("name", "")).casefold())
     current, page, total = _admin_page(items, page)
@@ -1632,15 +1624,7 @@ def delete_book_menu(page=0, chat_id=ADMIN_ID, message_id=None):
     }] for b in current]
     buttons.extend(_page_nav("deletepage", page, total))
     buttons.append([{"text": "⬅️ Admin panel", "callback_data": "admin"}])
-    markup = {"inline_keyboard": buttons}
-    text = f"🗑 O‘chirish uchun kitobni tanlang: ({page + 1}/{total})"
-    if message_id is not None:
-        try:
-            edit_message(chat_id, message_id, text, markup)
-            return
-        except Exception:
-            pass
-    send(chat_id, text, markup)
+    return {"inline_keyboard": buttons}
 
 def edit_fields_menu(book_id):
     return {
@@ -4749,12 +4733,20 @@ def handle_callback(callback):
         if not is_admin(chat_id): return
         try: page = int(data.rsplit("_", 1)[1])
         except Exception: page = 0
-        edit_book_menu(page, chat_id, message_id); return
+        try:
+            edit_message(chat_id, message_id, "✏️ Tahrirlash uchun kitob tanlang:", edit_book_menu(page))
+        except Exception:
+            send(chat_id, "✏️ Tahrirlash uchun kitob tanlang:", edit_book_menu(page))
+        return
     if data.startswith("deletepage_"):
         if not is_admin(chat_id): return
         try: page = int(data.rsplit("_", 1)[1])
         except Exception: page = 0
-        delete_book_menu(page, chat_id, message_id); return
+        try:
+            edit_message(chat_id, message_id, "🗑 O‘chirish uchun kitobni tanlang:", delete_book_menu(page))
+        except Exception:
+            send(chat_id, "🗑 O‘chirish uchun kitobni tanlang:", delete_book_menu(page))
+        return
     if data.startswith("qstock_page_"):
         if not is_admin(chat_id): return
         state = states.get(chat_id, {})
