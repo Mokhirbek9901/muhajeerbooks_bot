@@ -1,0 +1,48 @@
+name: Add unified finance bot 2026-09-10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/add_unified_finance_20260910.py'
+      - '.github/workflows/add_unified_finance_20260910.yml'
+      - 'cloud_bridge.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch bot finance UI
+        run: python3 tools/add_unified_finance_20260910.py
+      - name: Verify Python
+        run: python3 -m py_compile bot.py cloud_bridge.py sync_wrapper.py bot_runtime_launcher.py
+      - name: Verify finance hooks
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          bot = Path('bot.py').read_text(encoding='utf-8')
+          bridge = Path('cloud_bridge.py').read_text(encoding='utf-8')
+          required = ['💰 Moliya', '➕ Xarajat', 'finance_report_text', 'finance_expense_category']
+          for token in required:
+              if token not in bot:
+                  raise SystemExit(f'Missing bot finance token: {token}')
+          for token in ['def finance_report(', 'def add_finance_expense(']:
+              if token not in bridge:
+                  raise SystemExit(f'Missing bridge token: {token}')
+          PY
+      - name: Commit finance bot
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git commit -m "Add unified finance and expense report to bot"
+          git push
