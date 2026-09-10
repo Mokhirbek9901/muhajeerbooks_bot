@@ -179,7 +179,8 @@ def api(method, data=None):
     encoded = urllib.parse.urlencode(data).encode()
     req = urllib.request.Request(f"{API}/{method}", data=encoded)
     try:
-        with urllib.request.urlopen(req, timeout=40) as response:
+        http_timeout = 65 if method == "getUpdates" else 40
+        with urllib.request.urlopen(req, timeout=http_timeout) as response:
             raw = response.read().decode("utf-8", errors="replace")
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
