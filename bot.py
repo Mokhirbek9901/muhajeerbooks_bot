@@ -3,6 +3,7 @@ import time
 import json
 import urllib.request
 import urllib.parse
+import urllib.error
 import random
 import io
 import cloud_bridge
@@ -176,15 +177,21 @@ def api(method, data=None):
         data = {}
 
     encoded = urllib.parse.urlencode(data).encode()
-
-    request = urllib.request.Request(
-        f"{API}/{method}",
-        data=encoded
-    )
-
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.loads(response.read().decode())
-
+    req = urllib.request.Request(f"{API}/{method}", data=encoded)
+    try:
+        with urllib.request.urlopen(req, timeout=40) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", errors="replace")[:800]
+        except Exception:
+            body = ""
+        print(f"Telegram API HTTP {e.code} [{method}]: {body}")
+        raise
+    except (urllib.error.URLError, TimeoutError) as e:
+        print(f"Telegram API tarmoq xatosi [{method}]: {e}")
+        raise
 
 def send(chat_id, text, reply_markup=None):
     data = {
@@ -1570,43 +1577,70 @@ def admin_books_text():
     return "\n".join(lines)
 
 
-def edit_book_menu():
+ADMIN_PAGE_SIZE = 12
+
+
+def _admin_page(items, page=0, size=ADMIN_PAGE_SIZE):
+    total = max(1, (len(items) + size - 1) // size)
+    try:
+        page = int(page)
+    except Exception:
+        page = 0
+    page = max(0, min(page, total - 1))
+    start = page * size
+    return items[start:start + size], page, total
+
+
+def _page_nav(prefix, page, total):
+    if total <= 1:
+        return []
+    row = []
+    if page > 0:
+        row.append({"text": "⬅️", "callback_data": f"{prefix}_{page - 1}"})
+    row.append({"text": f"📄 {page + 1}/{total}", "callback_data": "page_noop"})
+    if page + 1 < total:
+        row.append({"text": "➡️", "callback_data": f"{prefix}_{page + 1}"})
+    return [row]
+
+def edit_book_menu(page=0, chat_id=ADMIN_ID, message_id=None):
     refresh_books()
-    buttons = []
+    items = sorted(books, key=lambda b: str(b.get("name", "")).casefold())
+    current, page, total = _admin_page(items, page)
+    buttons = [[{
+        "text": f"✏️ {b['name']}",
+        "callback_data": f"edit_{b['id']}"
+    }] for b in current]
+    buttons.extend(_page_nav("editpage", page, total))
+    buttons.append([{"text": "⬅️ Admin panel", "callback_data": "admin"}])
+    markup = {"inline_keyboard": buttons}
+    text = f"✏️ Tahrirlash uchun kitob tanlang: ({page + 1}/{total})"
+    if message_id is not None:
+        try:
+            edit_message(chat_id, message_id, text, markup)
+            return
+        except Exception:
+            pass
+    send(chat_id, text, markup)
 
-    for b in books:
-        buttons.append([
-            {
-                "text": f"✏️ {b['name']}",
-                "callback_data": f"edit_{b['id']}"
-            }
-        ])
-
-    buttons.append([
-        {"text": "⬅️ Admin panel", "callback_data": "admin"}
-    ])
-
-    return {"inline_keyboard": buttons}
-
-
-def delete_book_menu():
+def delete_book_menu(page=0, chat_id=ADMIN_ID, message_id=None):
     refresh_books()
-    buttons = []
-
-    for b in books:
-        buttons.append([
-            {
-                "text": f"🗑 {b['name']}",
-                "callback_data": f"delete_{b['id']}"
-            }
-        ])
-
-    buttons.append([
-        {"text": "⬅️ Admin panel", "callback_data": "admin"}
-    ])
-
-    return {"inline_keyboard": buttons}
-
+    items = sorted(books, key=lambda b: str(b.get("name", "")).casefold())
+    current, page, total = _admin_page(items, page)
+    buttons = [[{
+        "text": f"🗑 {b['name']}",
+        "callback_data": f"delete_{b['id']}"
+    }] for b in current]
+    buttons.extend(_page_nav("deletepage", page, total))
+    buttons.append([{"text": "⬅️ Admin panel", "callback_data": "admin"}])
+    markup = {"inline_keyboard": buttons}
+    text = f"🗑 O‘chirish uchun kitobni tanlang: ({page + 1}/{total})"
+    if message_id is not None:
+        try:
+            edit_message(chat_id, message_id, text, markup)
+            return
+        except Exception:
+            pass
+    send(chat_id, text, markup)
 
 def edit_fields_menu(book_id):
     return {
@@ -1636,27 +1670,34 @@ def low_stock_admin_keyboard():
     refresh_books(); items=sorted([b for b in books if int(b.get("stock",0))<=LOW_STOCK_LIMIT],key=lambda b:(int(b.get("stock",0)),str(b.get("name","")).casefold()))
     buttons=[[{"text":f"📦 {b['name']} — {int(b.get('stock',0))} ta","callback_data":f"qstock_book_{b['id']}"}] for b in items[:40]]; buttons.append([{"text":"⬅️ Admin panel","callback_data":"admin"}]); return {"inline_keyboard":buttons}
 
-def quick_stock_list_keyboard(chat_id=None):
+def quick_stock_list_keyboard(chat_id=None, page=None):
     refresh_books()
-    items=sorted(books,key=lambda b:str(b.get("name","")).casefold())[:80]
-    draft={}
-    if chat_id is not None:
-        state=states.get(chat_id,{})
-        if state.get("action")=="quick_stock_batch":
-            draft=state.get("stock_draft",{})
-    buttons=[]
-    for b in items:
-        bid=int(b["id"])
-        value=int(draft.get(str(bid),b.get("stock",0)))
-        buttons.append([{"text":f"📦 {b['name']} — {value} ta","callback_data":"qstock_noop"}])
+    items = sorted(books, key=lambda b: str(b.get("name", "")).casefold())
+    state = states.get(chat_id, {}) if chat_id is not None else {}
+    draft = state.get("stock_draft", {}) if isinstance(state, dict) else {}
+    if page is None:
+        page = state.get("stock_page", 0) if isinstance(state, dict) else 0
+    current, page, total = _admin_page(items, page, 8)
+    if isinstance(state, dict):
+        state["stock_page"] = page
+
+    buttons = []
+    for b in current:
+        bid = int(b["id"])
+        value = int(draft.get(str(bid), b.get("stock", 0)))
+        buttons.append([{
+            "text": f"📦 {b['name']} — {value} ta",
+            "callback_data": f"qstock_book_{bid}"
+        }])
         buttons.append([
-            {"text":"➖1","callback_data":f"qstock_batch_{bid}_-1"},
-            {"text":f"{value} ta","callback_data":"qstock_noop"},
-            {"text":"➕1","callback_data":f"qstock_batch_{bid}_1"},
+            {"text": "➖1", "callback_data": f"qstock_batch_{bid}_-1"},
+            {"text": f"{value} ta", "callback_data": "qstock_noop"},
+            {"text": "➕1", "callback_data": f"qstock_batch_{bid}_1"},
         ])
-    buttons.append([{"text":"✅ OK — Saqlash","callback_data":"qstock_save"}])
-    buttons.append([{"text":"❌ Bekor qilish","callback_data":"qstock_cancel"}])
-    return {"inline_keyboard":buttons}
+    buttons.extend(_page_nav("qstock_page", page, total))
+    buttons.append([{"text": "✅ OK — Saqlash", "callback_data": "qstock_save"}])
+    buttons.append([{"text": "❌ Bekor qilish", "callback_data": "qstock_cancel"}])
+    return {"inline_keyboard": buttons}
 
 def quick_stock_adjust_keyboard(book_id):
     return {"inline_keyboard":[[{"text":"➖5","callback_data":f"qstock_adj_{book_id}_-5"},{"text":"➖1","callback_data":f"qstock_adj_{book_id}_-1"}],[{"text":"➕1","callback_data":f"qstock_adj_{book_id}_1"},{"text":"➕5","callback_data":f"qstock_adj_{book_id}_5"}],[{"text":"✏️ Aniq son yozish","callback_data":f"qstock_set_{book_id}"}],[{"text":"⬅️ Kitoblar","callback_data":"qstock_list"}]]}
@@ -3062,9 +3103,30 @@ def handle_message(message):
     # START
     # =========================
 
-    if text == "/start":
+    if text == "/start" or text.startswith("/start "):
         carts.setdefault(chat_id, {})
         states.pop(chat_id, None)
+
+        start_payload = text.split(maxsplit=1)[1].strip() if " " in text else ""
+        if start_payload.startswith("restock_"):
+            try:
+                book_id = int(start_payload.split("_", 1)[1])
+            except Exception:
+                book_id = 0
+            book = find_book(book_id) if book_id else None
+            if not book:
+                send(chat_id, "❌ Kitob topilmadi.", main_menu(chat_id))
+                return
+            if int(book.get("stock", 0)) > 0 and int(effective_price(book)) > 0:
+                send(chat_id, f"✅ {book['name']} hozir sotuvda mavjud.", book_keyboard(book, chat_id))
+                return
+            subscribe_restock(chat_id, book_id)
+            send(
+                chat_id,
+                f"🔔 {book['name']} qayta kelishi bilan Telegram orqali sizga xabar beraman.",
+                main_menu(chat_id),
+            )
+            return
 
         send(
             chat_id,
@@ -4677,6 +4739,34 @@ def handle_callback(callback):
     # EDIT LIST
     # =========================
 
+    if data == "page_noop" or data == "qstock_noop":
+        try:
+            api("answerCallbackQuery", {"callback_query_id": callback_id})
+        except Exception:
+            pass
+        return
+    if data.startswith("editpage_"):
+        if not is_admin(chat_id): return
+        try: page = int(data.rsplit("_", 1)[1])
+        except Exception: page = 0
+        edit_book_menu(page, chat_id, message_id); return
+    if data.startswith("deletepage_"):
+        if not is_admin(chat_id): return
+        try: page = int(data.rsplit("_", 1)[1])
+        except Exception: page = 0
+        delete_book_menu(page, chat_id, message_id); return
+    if data.startswith("qstock_page_"):
+        if not is_admin(chat_id): return
+        state = states.get(chat_id, {})
+        if state.get("action") != "quick_stock_batch": return
+        try: page = int(data.rsplit("_", 1)[1])
+        except Exception: page = 0
+        state["stock_page"] = page
+        try:
+            edit_message(chat_id, message_id, "⚡ Tezkor qoldiq — kitoblar bo‘yicha o‘zgartiring:", quick_stock_list_keyboard(chat_id, page))
+        except Exception:
+            send(chat_id, "⚡ Tezkor qoldiq:", quick_stock_list_keyboard(chat_id, page))
+        return
     if data == "editlist":
         if is_admin(chat_id):
             send(

@@ -21,6 +21,7 @@ DATA_DIR = "/data" if os.path.isdir("/data") else "."
 BOOKS_FILE = os.path.join(DATA_DIR, "books.json")
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
+RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 ORDER_RESET_MARKER = os.path.join(DATA_DIR, "order_history_reset_20260908_v2.done")
 SYNC_INTERVAL = 2
 CATALOG_RESET_MARKER = os.path.join(DATA_DIR, "catalog_full_reset_20260908_v1.done")
@@ -59,6 +60,67 @@ def _write_json(path, data):
         os.fsync(f.fileno())
     os.replace(tmp, path)
 
+
+
+def _telegram_send_text(chat_id, text):
+    if not BOT_TOKEN:
+        return False
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data=urllib.parse.urlencode({"chat_id": str(chat_id), "text": text}).encode(),
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        return bool(payload.get("ok"))
+    except Exception as exc:
+        print("Restock Telegram xatosi:", chat_id, exc)
+        return False
+
+
+def _notify_restock_transitions(before, after):
+    subscriptions = _read_json(RESTOCK_FILE, {})
+    if not isinstance(subscriptions, dict) or not subscriptions:
+        return
+    before_by_id = {
+        str(b.get("id")): b for b in (before or []) if isinstance(b, dict)
+    }
+    changed = False
+    for book in after or []:
+        if not isinstance(book, dict):
+            continue
+        bid = str(book.get("id") or "")
+        if not bid:
+            continue
+        old = before_by_id.get(bid) or {}
+        try:
+            old_stock = int(old.get("stock") or 0)
+            new_stock = int(book.get("stock") or 0)
+        except Exception:
+            continue
+        if old_stock > 0 or new_stock <= 0:
+            continue
+        targets = [str(x) for x in subscriptions.get(bid, [])]
+        if not targets:
+            continue
+        title = str(book.get("name") or "Kitob")
+        price = int(book.get("price") or 0)
+        message = f"📚 {title} yana sotuvda!\n📦 Qoldiq: {new_stock} ta"
+        if price > 0:
+            message += f"\n💰 Narx: ₩{price:,}"
+        message += "\n\nMuhajeer Books orqali buyurtma berishingiz mumkin."
+        failed = []
+        for chat_id in targets:
+            if not _telegram_send_text(chat_id, message):
+                failed.append(chat_id)
+        if failed:
+            subscriptions[bid] = sorted(set(failed))
+        else:
+            subscriptions.pop(bid, None)
+        changed = True
+    if changed:
+        _write_json(RESTOCK_FILE, subscriptions)
 
 def _hash(data):
     raw = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -674,6 +736,7 @@ def sync_loop():
             latest_local = _read_books()
             if _hash(latest_local) == _hash(local):
                 if _hash(merged) != _hash(latest_local):
+                    _notify_restock_transitions(latest_local, merged)
                     _write_json(BOOKS_FILE, merged)
                 local = merged
             else:
