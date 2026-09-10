@@ -9,6 +9,16 @@ def _replace_once(source, old, new, label):
     return source.replace(old, new, 1)
 
 
+def _replace_function(source, start_marker, end_marker, replacement, label):
+    start = source.find(start_marker)
+    if start < 0:
+        raise RuntimeError(f"Runtime function topilmadi: {label}")
+    end = source.find(end_marker, start)
+    if end < 0:
+        raise RuntimeError(f"Runtime function oxiri topilmadi: {label}")
+    return source[:start] + replacement.rstrip() + "\n\n" + source[end:]
+
+
 def run_bot_patched():
     source = Path("bot.py").read_text(encoding="utf-8")
 
@@ -45,7 +55,7 @@ def run_bot_patched():
 '''
     source = _replace_once(source, old_books, new_books, "admin book list")
 
-    # 2) Telegram xarajat turlari ilova bilan bir xil bo‘lsin.
+    # 2) Telegram xarajat turlari ilova bilan aynan bir xil bo‘lsin.
     source = _replace_once(
         source,
         '    "🚚 Pochta": "postage",\n',
@@ -59,14 +69,21 @@ def run_bot_patched():
         "finance inventory keyboard",
     )
 
-    # 3) Bot moliya hisobotida ham ilovadagi ayni server natijasini +/− ko‘rsatamiz.
-    old_margin = '''    try:
-        margin = float(r.get("margin_percent", 0) or 0)
-    except Exception:
-        margin = 0.0
-    postage_note = " (taxmin)" if r.get("postage_is_estimated") else ""
-'''
-    new_margin = '''    def signed_won(value):
+    # 3) Moliya oynasi to‘liq server formulasi bilan ishlaydi.
+    finance_function = r'''def finance_report_text(period="month"):
+    period = period if period in FINANCE_PERIOD_LABELS else "month"
+    try:
+        r = cloud_bridge.finance_report(period)
+    except Exception as exc:
+        return f"❌ Moliya hisoboti serverdan olinmadi: {exc}"
+
+    def n(key):
+        try:
+            return int(float(r.get(key, 0) or 0))
+        except Exception:
+            return 0
+
+    def signed_won(value):
         value = int(value or 0)
         if value > 0:
             return f"+₩{value:,}"
@@ -74,27 +91,65 @@ def run_bot_patched():
             return f"−₩{abs(value):,}"
         return "₩0"
 
-    postage_note = " (taxmin)" if r.get("postage_is_estimated") else ""
-'''
-    source = _replace_once(source, old_margin, new_margin, "finance signed result helper")
+    try:
+        margin = float(r.get("margin_percent", 0) or 0)
+    except Exception:
+        margin = 0.0
 
-    source = _replace_once(
+    result = n("cash_result") if "cash_result" in r else n("net_profit")
+    result_label = "✅ SOF FOYDA" if result >= 0 else "🔻 SOF ZARAR"
+    postage_note = " (taxmin)" if r.get("postage_is_estimated") else ""
+
+    return "\n".join([
+        f"💰 MOLIYA — {FINANCE_PERIOD_LABELS[period].upper()}",
+        "━━━━━━━━━━━━━━",
+        f"💵 Jami tushum: ₩{n('total_revenue'):,}",
+        f"📚 Kitob savdosi: ₩{n('books_revenue'):,}",
+        f"🚚 Mijoz to‘lagan pochta: ₩{n('delivery_revenue'):,}",
+        "",
+        f"📦 Sotilgan kitoblar tannarxi: ₩{n('cost_of_goods'):,}",
+        f"📖 Kitobdan foyda: ₩{n('book_profit'):,}",
+        f"📚 Yangi partiya kitoblar: ₩{n('inventory_purchases'):,}",
+        "",
+        f"📮 Jami pochta{postage_note}: ₩{n('postage_expense'):,}",
+        f"✅ Mijoz qoplagan pochta: ₩{n('postage_covered_by_customers'):,}",
+        f"🏪 Do‘kon hisobidan pochta: ₩{n('store_postage_expense'):,}",
+        f"🧾 Boshqa chiqimlar: ₩{n('other_expenses'):,}",
+        f"💸 Natijaga kiradigan xarajat: ₩{n('cash_outflow_total'):,}",
+        "━━━━━━━━━━━━━━",
+        f"{result_label}: {signed_won(result)}",
+        f"📈 Marja: {margin:.1f}%",
+        "━━━━━━━━━━━━━━",
+        f"📚 Sotilgan kitob: {n('sold_books')} dona",
+        f"📦 Jo‘natilgan buyurtma: {n('shipped_orders')} ta",
+        "",
+        "ℹ️ Mijoz to‘lagan pochta puli pochta xarajatini qoplaydi va foyda/zararni kamaytirmaydi.",
+        "4+ kitobda yetkazish bepul bo‘lsa, faqat do‘kon hisobidan qolgan pochta qismi ayriladi.",
+        "Marja sotilgan kitoblar bo‘yicha hisoblanadi; yangi partiyadagi hali sotilmagan kitoblar marjani buzmaydi.",
+    ])
+'''
+    source = _replace_function(
         source,
-        '        f"📦 Sotilgan kitoblar tannarxi: ₩{n(\'cost_of_goods\'):,}",\n',
-        '        f"📦 Sotilgan kitoblar tannarxi: ₩{n(\'cost_of_goods\'):,}",\n        f"📚 Yangi partiya kitoblar: ₩{n(\'inventory_purchases\'):,}",\n',
-        "finance inventory report line",
+        'def finance_report_text(period="month"):',
+        'def finance_expense_category_keyboard():',
+        finance_function,
+        "finance_report_text",
     )
+
+    # 4) Eski "Bugungi hisobot"dagi foyda ham serverdagi ayni formuladan olinsin.
     source = _replace_once(
         source,
-        '        f"✅ SOF FOYDA: ₩{n(\'net_profit\'):,}",\n        f"📈 Sof marja: {margin:.1f}%",\n',
-        '        f"{\'✅ SOF FOYDA\' if n(\'net_profit\') >= 0 else \'🔻 SOF ZARAR\'}: {signed_won(n(\'net_profit\'))}",\n        f"💸 Umumiy xarajat: ₩{n(\'cash_outflow_total\'):,}",\n',
-        "finance cash result lines",
+        '    postage=len(successful)*int(DELIVERY_FEE); net_profit=revenue-cost_of_goods-postage\n',
+        '    cloud_finance = cloud_bridge.finance_report("today")\n    postage = int(float(cloud_finance.get("store_postage_expense", 0) or 0))\n    net_profit = int(float(cloud_finance.get("cash_result", cloud_finance.get("net_profit", 0)) or 0))\n',
+        "daily finance totals",
     )
+
+    # 5) Umumiy admin hisobotidagi foyda ham server bilan bir xil bo‘lsin.
     source = _replace_once(
         source,
-        '        "ℹ️ Sof foyda = kitob + yetkazish tushumi − tannarx − pochta − boshqa chiqimlar.",\n        "Kitobning kelish narxini alohida chiqimga yana qo‘shmang — tannarxda hisoblangan.",\n',
-        '        "ℹ️ Sof natija = jami tushum − barcha kiritilgan xarajatlar.",\n        "Yangi partiya, pochta, qadoqlash, reklama, transport va boshqa chiqimlar ham shu natijaga kiradi.",\n',
-        "finance formula help",
+        '    postage_expense = len(successful) * int(DELIVERY_FEE)\n    net_profit = revenue - cost_of_goods - postage_expense\n',
+        '    cloud_finance = cloud_bridge.finance_report(period)\n    postage_expense = int(float(cloud_finance.get("store_postage_expense", 0) or 0))\n    net_profit = int(float(cloud_finance.get("cash_result", cloud_finance.get("net_profit", 0)) or 0))\n',
+        "admin report finance totals",
     )
 
     namespace = {"__name__": "__main__", "__file__": "bot.py"}
