@@ -1,0 +1,42 @@
+name: Fix restock deep-link 2026-09-10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/fix_restock_deeplink_20260910.py'
+      - '.github/workflows/fix_restock_deeplink_20260910.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply runtime fix
+        run: python3 tools/fix_restock_deeplink_20260910.py
+      - name: Verify bot
+        run: |
+          python3 -m py_compile bot.py sync_wrapper.py cloud_bridge.py
+          python3 - <<'PY'
+          from pathlib import Path
+          bot = Path('bot.py').read_text(encoding='utf-8')
+          if 'book_keyboard(book, chat_id)' in bot:
+              raise SystemExit('Undefined legacy keyboard reference remains')
+          if 'book_detail_keyboard(book, chat_id)' not in bot:
+              raise SystemExit('Expected book detail keyboard reference missing')
+          PY
+      - name: Commit fix
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git commit -m "Fix restock deep-link book keyboard"
+          git push
