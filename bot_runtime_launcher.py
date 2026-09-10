@@ -91,41 +91,51 @@ def run_bot_patched():
             return f"−₩{abs(value):,}"
         return "₩0"
 
+    def signed_percent(value):
+        try:
+            value = float(value or 0)
+        except Exception:
+            value = 0.0
+        if value > 0:
+            return f"+{value:.1f}%"
+        if value < 0:
+            return f"−{abs(value):.1f}%"
+        return "0.0%"
+
     try:
         margin = float(r.get("margin_percent", 0) or 0)
     except Exception:
         margin = 0.0
 
     result = n("cash_result") if "cash_result" in r else n("net_profit")
-    result_label = "✅ SOF FOYDA" if result >= 0 else "🔻 SOF ZARAR"
+    result_label = "✅ SOF FOYDA" if result > 0 else ("🔻 SOF ZARAR" if result < 0 else "➖ SOF NATIJA")
     postage_note = " (taxmin)" if r.get("postage_is_estimated") else ""
 
     return "\n".join([
         f"💰 MOLIYA — {FINANCE_PERIOD_LABELS[period].upper()}",
         "━━━━━━━━━━━━━━",
         f"💵 Jami tushum: ₩{n('total_revenue'):,}",
-        f"📚 Kitob savdosi: ₩{n('books_revenue'):,}",
-        f"🚚 Mijoz to‘lagan pochta: ₩{n('delivery_revenue'):,}",
+        f"📚 Hisobga kiradigan kitob savdosi: ₩{n('books_revenue'):,}",
+        f"🚚 Mijoz to‘lagan pochta: ₩{n('delivery_revenue'):,} (foyda emas)",
         "",
-        f"📦 Sotilgan kitoblar tannarxi: ₩{n('cost_of_goods'):,}",
-        f"📖 Kitobdan foyda: ₩{n('book_profit'):,}",
         f"📚 Yangi partiya kitoblar: ₩{n('inventory_purchases'):,}",
-        "",
-        f"📮 Jami pochta{postage_note}: ₩{n('postage_expense'):,}",
-        f"✅ Mijoz qoplagan pochta: ₩{n('postage_covered_by_customers'):,}",
         f"🏪 Do‘kon hisobidan pochta: ₩{n('store_postage_expense'):,}",
         f"🧾 Boshqa chiqimlar: ₩{n('other_expenses'):,}",
-        f"💸 Natijaga kiradigan xarajat: ₩{n('cash_outflow_total'):,}",
+        f"💸 Jami hisobga kiradigan xarajat: ₩{n('cash_outflow_total'):,}",
         "━━━━━━━━━━━━━━",
         f"{result_label}: {signed_won(result)}",
-        f"📈 Marja: {margin:.1f}%",
+        f"📈 Marja: {signed_percent(margin)}",
         "━━━━━━━━━━━━━━",
+        f"📦 Sotilgan kitoblar tannarxi (ma’lumot uchun): ₩{n('cost_of_goods'):,}",
+        f"📖 Sotilgan kitoblar savdo foydasi: ₩{n('book_profit'):,}",
+        f"📮 Jami pochta{postage_note}: ₩{n('postage_expense'):,}",
+        f"✅ Mijoz qoplagan pochta: ₩{n('postage_covered_by_customers'):,}",
         f"📚 Sotilgan kitob: {n('sold_books')} dona",
         f"📦 Jo‘natilgan buyurtma: {n('shipped_orders')} ta",
         "",
-        "ℹ️ Mijoz to‘lagan pochta puli pochta xarajatini qoplaydi va foyda/zararni kamaytirmaydi.",
-        "4+ kitobda yetkazish bepul bo‘lsa, faqat do‘kon hisobidan qolgan pochta qismi ayriladi.",
-        "Marja sotilgan kitoblar bo‘yicha hisoblanadi; yangi partiyadagi hali sotilmagan kitoblar marjani buzmaydi.",
+        "ℹ️ Sof natija = kitob savdosi − yangi partiya − do‘kon hisobidagi pochta − boshqa xarajatlar.",
+        "Mijoz to‘lagan pochta puli foyda hisoblanmaydi va natijani kamaytirmaydi.",
+        "4+ kitobda yetkazish bepul bo‘lsa, pochta do‘kon hisobidan chiqadi.",
     ])
 '''
     source = _replace_function(
