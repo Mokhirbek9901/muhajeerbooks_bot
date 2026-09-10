@@ -1,11 +1,15 @@
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 SYNC_SECRET = os.environ.get("SUPABASE_BOT_SYNC_SECRET", "")
+
+_TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
+_MAX_RPC_ATTEMPTS = 3
 
 
 def configured():
@@ -15,27 +19,45 @@ def configured():
 def rpc(name, payload):
     if not configured():
         raise RuntimeError("Supabase sync sozlanmagan")
+
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        f"{SUPABASE_URL}/rest/v1/rpc/{name}",
-        data=body,
-        headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read().decode("utf-8")
-            return json.loads(raw) if raw else None
-    except urllib.error.HTTPError as exc:
+    last_error = None
+
+    for attempt in range(_MAX_RPC_ATTEMPTS):
+        request = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/rpc/{name}",
+            data=body,
+            headers={
+                "apikey": SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
         try:
-            detail = exc.read().decode("utf-8")
-        except Exception:
-            detail = str(exc)
-        raise RuntimeError(detail or str(exc)) from exc
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read().decode("utf-8")
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = exc.read().decode("utf-8")
+            except Exception:
+                detail = str(exc)
+            last_error = RuntimeError(
+                f"Supabase HTTP {exc.code}: {detail or str(exc)}"
+            )
+            if exc.code in _TRANSIENT_HTTP_CODES and attempt < _MAX_RPC_ATTEMPTS - 1:
+                time.sleep(1.0 * (attempt + 1))
+                continue
+            raise last_error from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last_error = RuntimeError(f"Supabase vaqtincha ulanmayapti: {exc}")
+            if attempt < _MAX_RPC_ATTEMPTS - 1:
+                time.sleep(1.0 * (attempt + 1))
+                continue
+            raise last_error from exc
+
+    raise last_error or RuntimeError("Supabase RPC bajarilmadi")
 
 
 def create_order(order, preserve_stock=False):
