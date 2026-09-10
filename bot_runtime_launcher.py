@@ -2,6 +2,7 @@ from pathlib import Path
 
 import app_image_sync  # Railway start old behavior: app image sync remains enabled.
 
+# Admin kitoblar ro‘yxati uchun Telegram message-limit fix.
 
 def run_bot_patched():
     source = Path("bot.py").read_text(encoding="utf-8")
