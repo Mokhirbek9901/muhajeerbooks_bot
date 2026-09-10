@@ -217,4 +217,4 @@ if all((SUPABASE_URL, SUPABASE_ANON_KEY, SYNC_SECRET, BOT_TOKEN, ADMIN_ID)):
 else:
     print("Ilova → Telegram rasm sync uchun environment variablelar yetishmaydi.")
 
-# Railway deploy trigger: final launch hardening 2026-09-10.
+# Railway deploy trigger: final restock deep-link fix 2026-09-10.
