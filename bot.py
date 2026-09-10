@@ -1736,20 +1736,39 @@ def _order_report_books(order):
 
 
 def daily_admin_report_text():
-    load_orders(); load_users(); now=datetime.now(); successful=[]
-    for o in orders.values():
-        if int(o.get("order_id",0) or 0)<STATS_RESET_ORDER_ID: continue
-        try: dt=_local_datetime(o.get("created_at",""))
-        except Exception: continue
-        if dt.date()==now.date() and o.get("status") == "shipped": successful.append(o)
-    revenue=sum(_order_report_total(o) for o in successful); books_revenue=sum(_order_report_books(o) for o in successful); delivery_revenue=sum(_order_report_delivery(o) for o in successful); sold_qty=sum(sum(int(q) for q in o.get("cart",{}).values()) for o in successful)
-    cost_of_goods=0; missing_cost_qty=0
-    for o in successful:
-        c,m=order_cost_summary(o); cost_of_goods+=c; missing_cost_qty+=m
-    postage=len(successful)*int(DELIVERY_FEE); net_profit=revenue-cost_of_goods-postage
-    lines=["📅 BUGUNGI HISOBOT","",f"📦 Buyurtmalar: {len(successful)} ta",f"📚 Sotilgan kitoblar: {sold_qty} dona","",f"💰 Jami tushum: ₩{revenue:,}",f"📖 Kitob savdosi: ₩{books_revenue:,}",f"🚚 Mijozlardan yetkazish puli: ₩{delivery_revenue:,}","",f"💵 Sotilgan kitoblar tannarxi: ₩{cost_of_goods:,}",f"📮 Pochtaga sarflandi: ₩{postage:,}","━━━━━━━━━━━━━━",f"✅ BUGUNGI SOF FOYDA: ₩{net_profit:,}","━━━━━━━━━━━━━━"]
-    if missing_cost_qty: lines.append(f"⚠️ {missing_cost_qty} dona sotilgan kitobda tannarx 0. Sof foyda aniq bo‘lishi uchun tannarxini kiriting.")
-    return "\n".join(lines)
+    try:
+        r = cloud_bridge.finance_report("today")
+    except Exception as exc:
+        return f"❌ Bugungi moliya hisoboti serverdan olinmadi: {exc}"
+
+    def n(key):
+        try:
+            return int(float(r.get(key, 0) or 0))
+        except Exception:
+            return 0
+
+    net = n("net_profit")
+    margin = float(r.get("margin_percent", 0) or 0)
+    return "\n".join([
+        "📅 BUGUNGI HISOBOT",
+        "",
+        f"📦 Jo‘natilgan buyurtma: {n('shipped_orders')} ta",
+        f"📚 Sotilgan kitoblar: {n('sold_books')} dona",
+        "",
+        f"💰 Jami tushum: ₩{n('total_revenue'):,}",
+        f"📖 Hisobga kiradigan kitob savdosi: ₩{n('books_revenue'):,}",
+        f"🚚 Mijozlardan yetkazish puli: ₩{n('delivery_revenue'):,}",
+        f"💵 Kitob tannarxi: ₩{n('cost_of_goods'):,}",
+        f"📚 Kitobdan qolgan foyda: ₩{n('book_profit'):,}",
+        f"📦 Yangi partiya kitoblar: ₩{n('inventory_purchases'):,}",
+        f"📮 Do‘kon hisobidan pochta: ₩{n('store_postage_expense'):,}",
+        f"🧾 Boshqa chiqimlar: ₩{n('other_expenses'):,}",
+        "━━━━━━━━━━━━━━",
+        f"{'✅ BUGUNGI SOF FOYDA' if net >= 0 else '🔻 BUGUNGI SOF ZARAR'}: {'-' if net < 0 else ''}₩{abs(net):,}",
+        f"📈 Marja: {margin:.1f}%",
+        "━━━━━━━━━━━━━━",
+        "ℹ️ Natija = kitob savdosi − yangi partiya − do‘kon hisobidan pochta − boshqa chiqimlar.",
+    ])
 
 
 # =========================
@@ -2171,21 +2190,56 @@ def admin_report_text(period="all"):
     shipped = sum(1 for o in selected if o.get("status") == "shipped")
     delivered = sum(1 for o in selected if o.get("status") == "delivered")
     cancelled = sum(1 for o in selected if o.get("status") == "cancelled")
-    revenue = sum(int(o.get("grand_total", 0)) for o in successful)
-    books_revenue = sum(int(o.get("total", 0)) for o in successful)
-    delivery_revenue = sum(int(o.get("delivery_fee", DELIVERY_FEE)) for o in successful)
-    cost_of_goods = 0
-    missing_cost_qty = 0
-    for o in successful:
-        order_cost, missing_qty = order_cost_summary(o); cost_of_goods += order_cost; missing_cost_qty += missing_qty
-    # Har bir yakunlangan buyurtma uchun real pochta xarajati ₩4,000 deb hisoblanadi.
-    # Mijoz yetkazish pulini to‘lasa ham, 4+ kitobda bepul bo‘lsa ham pochta xarajati mavjud.
-    postage_expense = len(successful) * int(DELIVERY_FEE)
-    net_profit = revenue - cost_of_goods - postage_expense
+    # Moliyaviy raqamlar web/APK bilan aynan bir xil markaziy hisobotdan olinadi.
+    # Local buyurtmalar faqat TOP kitob/mijoz va status statistikasiga xizmat qiladi.
+    try:
+        cloud_finance = cloud_bridge.finance_report(period)
+    except Exception as exc:
+        print("Statistika moliya cloud xatosi:", exc)
+        cloud_finance = {}
+
+    def finance_n(key, default=0):
+        try:
+            return int(float(cloud_finance.get(key, default) or 0))
+        except Exception:
+            return int(default or 0)
+
+    if cloud_finance:
+        revenue = finance_n("total_revenue")
+        books_revenue = finance_n("books_revenue")
+        delivery_revenue = finance_n("delivery_revenue")
+        cost_of_goods = finance_n("cost_of_goods")
+        book_profit = finance_n("book_profit")
+        inventory_purchases = finance_n("inventory_purchases")
+        postage_expense = finance_n("postage_expense")
+        store_postage_expense = finance_n("store_postage_expense")
+        other_expenses = finance_n("other_expenses")
+        cash_outflow_total = finance_n("cash_outflow_total")
+        net_profit = finance_n("net_profit")
+        missing_cost_qty = 0
+    else:
+        # Server bo‘lmasa eski local raqamni "sof foyda" deb ko‘rsatmaymiz.
+        revenue = sum(_order_report_total(o) for o in successful)
+        books_revenue = sum(_order_report_books(o) for o in successful)
+        delivery_revenue = sum(_order_report_delivery(o) for o in successful)
+        cost_of_goods = 0
+        missing_cost_qty = 0
+        for o in successful:
+            order_cost, missing_qty = order_cost_summary(o)
+            cost_of_goods += order_cost
+            missing_cost_qty += missing_qty
+        book_profit = books_revenue - cost_of_goods
+        inventory_purchases = 0
+        postage_expense = len(successful) * int(DELIVERY_FEE)
+        store_postage_expense = max(0, postage_expense - delivery_revenue)
+        other_expenses = 0
+        cash_outflow_total = store_postage_expense
+        net_profit = books_revenue - cash_outflow_total
+
     avg_order = revenue / len(successful) if successful else 0
     free_delivery_orders = [
         o for o in successful
-        if int(o.get("delivery_fee", DELIVERY_FEE)) == 0
+        if _order_report_delivery(o) == 0
     ]
     free_delivery_cost = len(free_delivery_orders) * int(DELIVERY_FEE)
 
@@ -2249,8 +2303,12 @@ def admin_report_text(period="all"):
         f"📚 Kitoblar savdosi: ₩{books_revenue:,}",
         f"🚚 Yetkazib berish: ₩{delivery_revenue:,}",
         f"💵 Sotilgan kitoblar tannarxi: ₩{cost_of_goods:,}",
-        f"📮 Pochtaga sarflandi: ₩{postage_expense:,}",
-        f"✅ Sof foyda: ₩{net_profit:,}",
+        f"📖 Kitobdan qolgan foyda: ₩{book_profit:,}",
+        f"📦 Yangi partiya kitoblar: ₩{inventory_purchases:,}",
+        f"📮 Do‘kon hisobidan pochta: ₩{store_postage_expense:,}",
+        f"🧾 Boshqa chiqimlar: ₩{other_expenses:,}",
+        f"➖ Hisobga kiradigan jami chiqim: ₩{cash_outflow_total:,}",
+        f"{'✅ Sof foyda' if net_profit >= 0 else '🔻 Sof zarar'}: {'-' if net_profit < 0 else ''}₩{abs(net_profit):,}",
         f"📈 O‘rtacha buyurtma: ₩{avg_order:,.0f}",
         f"📚 Sotilgan kitoblar: {sum(sold.values())} dona",
         f"👤 Yangi mijozlar: {new_customers} ta",
@@ -2558,14 +2616,41 @@ def save_instagram_sale(state):
                 f"Hozir {int(book.get('stock', 0))} ta."
             )
 
-    items = []
+    # Instagram savdoda admin kiritgan haqiqiy kitob tushumi asosiy narx.
+    # Katalog narxi faqat tushumni kitoblar orasida proporsional taqsimlash uchun
+    # ishlatiladi. Agar biror kitob narxi 0 bo‘lsa, teng taqsimlaymiz.
+    units = []
     for bid, qty in cart.items():
         book = by_id[str(bid)]
+        for _ in range(int(qty)):
+            units.append(book)
+
+    catalog_weights = [max(0, int(effective_price(book))) for book in units]
+    if not units:
+        raise ValueError("Kitoblar tanlanmagan.")
+    if any(weight <= 0 for weight in catalog_weights):
+        catalog_weights = [1 for _ in units]
+
+    weight_total = max(1, sum(catalog_weights))
+    allocated = []
+    remainders = []
+    used = 0
+    for index, weight in enumerate(catalog_weights):
+        numerator = int(books_total) * int(weight)
+        amount = numerator // weight_total
+        allocated.append(amount)
+        remainders.append((numerator % weight_total, index))
+        used += amount
+    for _, index in sorted(remainders, reverse=True)[:max(0, int(books_total) - used)]:
+        allocated[index] += 1
+
+    items = []
+    for book, unit_price in zip(units, allocated):
         items.append({
-            "book_id": str(bid),
+            "book_id": str(book.get("id")),
             "name": str(book.get("name", "Kitob")),
-            "qty": int(qty),
-            "unit_price": int(effective_price(book)),
+            "qty": 1,
+            "unit_price": int(unit_price),
             "unit_cost": int(book.get("cost_price", 0) or 0),
         })
 
@@ -2953,6 +3038,7 @@ FINANCE_PERIOD_LABELS = {
 
 FINANCE_EXPENSE_CATEGORIES = {
     "🚚 Pochta": "postage",
+    "📚 Yangi partiya kitoblar": "inventory_purchase",
     "📦 Qadoqlash": "packaging",
     "📣 Reklama": "ads",
     "🚕 Transport": "transport",
@@ -2993,25 +3079,27 @@ def finance_report_text(period="month"):
         f"📚 Kitob savdosi: ₩{n('books_revenue'):,}",
         f"🚚 Yetkazish tushumi: ₩{n('delivery_revenue'):,}",
         "",
-        f"📦 Sotilgan kitoblar tannarxi: ₩{n('cost_of_goods'):,}",
-        f"📖 Kitobdan foyda: ₩{n('book_profit'):,}",
-        f"📮 Pochta xarajati{postage_note}: ₩{n('postage_expense'):,}",
+        f"📦 Kitob tannarxi: ₩{n('cost_of_goods'):,}",
+        f"📖 Kitobdan qolgan foyda: ₩{n('book_profit'):,}",
+        f"📚 Yangi partiya kitoblar: ₩{n('inventory_purchases'):,}",
+        f"📮 Do‘kon hisobidan pochta: ₩{n('store_postage_expense'):,}",
         f"🧾 Boshqa chiqimlar: ₩{n('other_expenses'):,}",
-        f"➖ Jami chiqim: ₩{n('total_expenses'):,}",
+        f"➖ Hisobga kiradigan jami chiqim: ₩{n('cash_outflow_total'):,}",
         "━━━━━━━━━━━━━━",
-        f"✅ SOF FOYDA: ₩{n('net_profit'):,}",
+        f"{'✅ SOF FOYDA' if n('net_profit') >= 0 else '🔻 SOF ZARAR'}: {'-' if n('net_profit') < 0 else ''}₩{abs(n('net_profit')):,}",
         f"📈 Sof marja: {margin:.1f}%",
         "",
         f"📚 Sotilgan kitob: {n('sold_books')} dona",
         f"📦 Jo‘natilgan buyurtma: {n('shipped_orders')} ta",
         "",
-        "ℹ️ Sof foyda = kitob + yetkazish tushumi − tannarx − pochta − boshqa chiqimlar.",
-        "Kitobning kelish narxini alohida chiqimga yana qo‘shmang — tannarxda hisoblangan.",
+        "ℹ️ Sof natija = kitob savdosi − yangi partiya kitoblar − do‘kon hisobidan pochta − boshqa chiqimlar.",
+        "Mijoz to‘lagan pochta puli foyda emas; u pochta xarajatini qoplaydi.",
     ])
 
 
 def finance_expense_category_keyboard():
     return {"keyboard": [
+        [{"text": "📚 Yangi partiya kitoblar"}],
         [{"text": "🚚 Pochta"}, {"text": "📦 Qadoqlash"}],
         [{"text": "📣 Reklama"}, {"text": "🚕 Transport"}],
         [{"text": "🧾 Boshqa"}],
