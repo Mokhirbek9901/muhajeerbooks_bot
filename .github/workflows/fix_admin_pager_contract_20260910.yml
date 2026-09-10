@@ -1,0 +1,42 @@
+name: Fix admin pager contract 2026-09-10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/fix_admin_pager_contract_20260910.py'
+      - '.github/workflows/fix_admin_pager_contract_20260910.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply compatibility fix
+        run: python3 tools/fix_admin_pager_contract_20260910.py
+      - name: Verify bot
+        run: |
+          python3 -m py_compile bot.py sync_wrapper.py cloud_bridge.py
+          python3 - <<'PY'
+          from pathlib import Path
+          bot = Path('bot.py').read_text(encoding='utf-8')
+          if 'def edit_book_menu(page=0):' not in bot or 'return {"inline_keyboard": buttons}' not in bot:
+              raise SystemExit('edit pager keyboard contract missing')
+          if 'edit_message(chat_id, message_id, "✏️ Tahrirlash uchun kitob tanlang:", edit_book_menu(page))' not in bot:
+              raise SystemExit('edit pager callback missing')
+          PY
+      - name: Commit fix
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          git commit -m "Keep paginated admin menus compatible with existing callers"
+          git push
