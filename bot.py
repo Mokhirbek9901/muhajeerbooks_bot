@@ -3102,7 +3102,7 @@ def handle_message(message):
                 send(chat_id, "❌ Kitob topilmadi.", main_menu(chat_id))
                 return
             if int(book.get("stock", 0)) > 0 and int(effective_price(book)) > 0:
-                send(chat_id, f"✅ {book['name']} hozir sotuvda mavjud.", book_keyboard(book, chat_id))
+                send(chat_id, f"✅ {book['name']} hozir sotuvda mavjud.", book_detail_keyboard(book, chat_id))
                 return
             subscribe_restock(chat_id, book_id)
             send(
