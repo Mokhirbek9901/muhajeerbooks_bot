@@ -96,6 +96,26 @@ def sales_list(limit=5000):
     return result if isinstance(result, list) else []
 
 
+def finance_report(period="month"):
+    result = rpc(
+        "bot_finance_report",
+        {"p_secret": SYNC_SECRET, "p_period": str(period or "month")},
+    )
+    return result if isinstance(result, dict) else {}
+
+
+def add_finance_expense(amount, category="postage", note="", expense_date=None):
+    payload = {
+        "p_secret": SYNC_SECRET,
+        "p_amount": int(amount),
+        "p_category": str(category or "postage"),
+        "p_note": str(note or ""),
+    }
+    if expense_date:
+        payload["p_expense_date"] = str(expense_date)
+    return rpc("bot_add_finance_expense", payload)
+
+
 def mark_instagram_order(cloud_id):
     return rpc(
         "bot_mark_instagram_order",
