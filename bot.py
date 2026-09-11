@@ -1352,63 +1352,23 @@ def _shipping_status_label(status):
 
 
 def shipping_queue_entries(source_filter="all"):
-    load_orders()
-    data = _shipping_queue_load()
-    dismissed = set(data.get("dismissed_order_ids", []))
+    rows = cloud_bridge.shipping_queue_list()
     entries = []
-
-    for key, order in orders.items():
-        if not isinstance(order, dict):
+    for row in rows:
+        if not isinstance(row, dict):
             continue
-        source = str(order.get("source") or "telegram")
-        if source not in ("telegram", "app"):
-            continue
-        status = str(order.get("status") or "pending")
-        if status in ("cancelled", "stock_problem"):
-            continue
-        try:
-            oid_num = int(order.get("order_id", key) or 0)
-        except Exception:
-            oid_num = 0
-        if oid_num and oid_num < STATS_RESET_ORDER_ID:
-            continue
-        oid = str(order.get("order_id") or key)
-        if oid in dismissed:
-            continue
+        source = str(row.get("source") or "")
         if source_filter not in ("all", source):
             continue
-        phone = str(order.get("phone") or "").strip()
-        address = str(order.get("address") or "").strip()
-        name = str(order.get("name") or "Noma’lum").strip() or "Noma’lum"
-        if not phone and not address:
-            continue
-        entries.append({
-            "queue_kind": "order",
-            "queue_id": oid,
-            "source": source,
-            "name": name,
-            "phone": phone or "—",
-            "address": address or "—",
-            "books": _shipping_books_text(order),
-            "status": status,
-            "created_at": str(order.get("created_at") or ""),
-            "address_photo_file_id": "",
-        })
-
-    if source_filter in ("all", "manual"):
-        for mid, row in (data.get("manual") or {}).items():
-            if not isinstance(row, dict):
-                continue
-            entry = dict(row)
-            entry.update({
-                "queue_kind": "manual",
-                "queue_id": str(mid),
-                "source": "manual",
-                "status": "manual",
-            })
-            entries.append(entry)
-
-    entries.sort(key=lambda e: str(e.get("created_at") or ""), reverse=True)
+        entry = dict(row)
+        entry["queue_kind"] = str(entry.get("queue_kind") or ("manual" if source == "manual" else "order"))
+        entry["queue_id"] = str(entry.get("queue_id") or "")
+        entry["name"] = str(entry.get("name") or "Noma’lum")
+        entry["phone"] = str(entry.get("phone") or "—")
+        entry["address"] = str(entry.get("address") or "—")
+        entry["books"] = str(entry.get("books") or "• Kitob ma’lumoti yo‘q")
+        entry["address_photo_file_id"] = str(entry.get("address_photo_file_id") or "")
+        entries.append(entry)
     return entries
 
 
@@ -1504,39 +1464,21 @@ def send_shipping_queue(chat_id, source_filter="all"):
 
 
 def save_manual_shipping_order(state):
-    data = _shipping_queue_load()
-    manual = data.setdefault("manual", {})
-    mid = str(int(time.time() * 1000))
-    while mid in manual:
-        time.sleep(0.001)
-        mid = str(int(time.time() * 1000))
-    manual[mid] = {
-        "name": str(state.get("name") or "Noma’lum").strip() or "Noma’lum",
-        "phone": str(state.get("phone") or "—").strip() or "—",
-        "address": str(state.get("address") or "—").strip() or "—",
-        "books": str(state.get("books") or "• Kitob ma’lumoti yo‘q").strip(),
-        "address_photo_file_id": str(state.get("address_photo_file_id") or "").strip(),
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-    }
-    _shipping_queue_save(data)
-    entry = dict(manual[mid])
-    entry.update({"queue_kind": "manual", "queue_id": mid, "source": "manual", "status": "manual"})
-    return entry
+    result = cloud_bridge.shipping_queue_add(
+        state.get("name"),
+        state.get("phone"),
+        state.get("address"),
+        state.get("books"),
+        state.get("address_photo_file_id", ""),
+    )
+    if not isinstance(result, dict):
+        raise RuntimeError("Zakas serverga saqlanmadi")
+    return result
 
 
 def delete_shipping_queue_entry(kind, queue_id):
-    data = _shipping_queue_load()
-    queue_id = str(queue_id)
-    if kind == "m":
-        existed = queue_id in data.get("manual", {})
-        data.get("manual", {}).pop(queue_id, None)
-    else:
-        dismissed = set(data.get("dismissed_order_ids", []))
-        existed = queue_id not in dismissed
-        dismissed.add(queue_id)
-        data["dismissed_order_ids"] = sorted(dismissed)
-    _shipping_queue_save(data)
-    return existed
+    return bool(cloud_bridge.shipping_queue_dismiss(kind, queue_id))
+
 
 # =========================
 # MENYULAR
