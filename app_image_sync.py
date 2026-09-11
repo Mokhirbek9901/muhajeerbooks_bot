@@ -5,6 +5,8 @@ import time
 import urllib.parse
 import urllib.request
 
+from supabase_http import post_json
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 SYNC_SECRET = os.environ.get("SUPABASE_BOT_SYNC_SECRET", "")
@@ -16,20 +18,16 @@ SYNC_INTERVAL = 12
 
 
 def _rpc(name, payload):
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
+    return post_json(
         f"{SUPABASE_URL}/rest/v1/rpc/{name}",
-        data=body,
-        headers={
+        payload,
+        {
             "apikey": SUPABASE_ANON_KEY,
             "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
             "Content-Type": "application/json",
         },
-        method="POST",
+        timeout=40,
     )
-    with urllib.request.urlopen(req, timeout=40) as resp:
-        raw = resp.read().decode("utf-8")
-        return json.loads(raw) if raw else None
 
 
 def _telegram(method, payload):

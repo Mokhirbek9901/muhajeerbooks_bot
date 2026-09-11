@@ -11,6 +11,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+from supabase_http import post_json
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 SYNC_SECRET = os.environ.get("SUPABASE_BOT_SYNC_SECRET", "")
@@ -28,20 +30,16 @@ CATALOG_RESET_MARKER = os.path.join(DATA_DIR, "catalog_full_reset_20260908_v1.do
 
 
 def _rpc(name, payload):
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
+    return post_json(
         f"{SUPABASE_URL}/rest/v1/rpc/{name}",
-        data=body,
-        headers={
+        payload,
+        {
             "apikey": SUPABASE_ANON_KEY,
             "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
             "Content-Type": "application/json",
         },
-        method="POST",
+        timeout=35,
     )
-    with urllib.request.urlopen(req, timeout=35) as resp:
-        raw = resp.read().decode("utf-8")
-        return json.loads(raw) if raw else None
 
 
 def _read_json(path, default):
