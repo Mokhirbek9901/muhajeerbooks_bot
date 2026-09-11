@@ -6,6 +6,8 @@ import urllib.parse
 import urllib.error
 import random
 import io
+import re
+import subprocess
 import cloud_bridge
 
 from datetime import datetime, timedelta
@@ -1375,7 +1377,7 @@ def shipping_queue_entries(source_filter="all"):
 def shipping_queue_menu():
     return {
         "keyboard": [
-            [{"text": "📋 Barcha zakaslar"}, {"text": "➕ Qo‘lda zakas"}],
+            [{"text": "📋 Barcha zakaslar"}, {"text": "➕ SMS / rasm"}],
             [{"text": "🤖 Bot zakaslari"}, {"text": "📱 Ilova zakaslari"}],
             [{"text": "✍️ Qo‘lda kiritilgan"}],
             [{"text": "⬅️ Admin panel"}],
@@ -1478,6 +1480,285 @@ def save_manual_shipping_order(state):
 
 def delete_shipping_queue_entry(kind, queue_id):
     return bool(cloud_bridge.shipping_queue_dismiss(kind, queue_id))
+
+
+
+def _shipping_clean_line(value):
+    return ' '.join(str(value or '').replace('\u200b', ' ').split()).strip()
+
+
+def _shipping_phone_from_text(raw):
+    raw = str(raw or '')
+    patterns = [
+        r'(?<!\d)(?:\+?82[-\s]?)?0?10[-\s]?\d{3,4}[-\s]?\d{4}(?!\d)',
+        r'(?<!\d)\+?\d[\d\s()\-]{7,18}\d(?!\d)',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, raw)
+        if not m:
+            continue
+        value = m.group(0).strip()
+        digits = ''.join(ch for ch in value if ch.isdigit())
+        if 8 <= len(digits) <= 15:
+            if value.startswith('+'):
+                return '+' + digits
+            return digits
+    return ''
+
+
+def _shipping_is_address_line(line):
+    line = _shipping_clean_line(line)
+    if not line:
+        return False
+    low = line.casefold()
+    if any(key in low for key in ('manzil', 'address', '주소', '배송지', '받는 주소', '받는주소')):
+        return True
+    # Korean postal-address signals.
+    if re.search(r'(특별시|광역시|특별자치시|특별자치도|[가-힣]+도|[가-힣]+시|[가-힣]+군|[가-힣]+구)', line):
+        if re.search(r'(로|길|동|읍|면|리|번길|대로|\d+-\d+|\d+호)', line):
+            return True
+    if re.search(r'\b\d{5}\b', line) and re.search(r'[가-힣]', line):
+        return True
+    return False
+
+
+def _shipping_extract_address(lines):
+    labels = ('manzil', 'address', '주소', '배송지', '받는 주소', '받는주소')
+    for i, raw in enumerate(lines):
+        line = _shipping_clean_line(raw)
+        low = line.casefold()
+        if any(key in low for key in labels):
+            value = re.sub(r'^(?:📍\s*)?(?:manzil|address|주소|배송지|받는\s*주소)\s*[:：\-]?\s*', '', line, flags=re.I).strip()
+            parts = [value] if value else []
+            for nxt in lines[i + 1:i + 3]:
+                nxt = _shipping_clean_line(nxt)
+                if not nxt or _shipping_phone_from_text(nxt):
+                    break
+                if _shipping_is_address_line(nxt) or re.search(r'(\d+호|층|동\s*\d+|\d+동|\d+[-–]\d+)', nxt):
+                    parts.append(nxt)
+                else:
+                    break
+            if parts:
+                return ', '.join(parts)
+
+    for i, raw in enumerate(lines):
+        line = _shipping_clean_line(raw)
+        if not _shipping_is_address_line(line):
+            continue
+        parts = [line]
+        for nxt in lines[i + 1:i + 3]:
+            nxt = _shipping_clean_line(nxt)
+            if not nxt or _shipping_phone_from_text(nxt):
+                break
+            if _shipping_is_address_line(nxt) or re.search(r'(\d+호|층|\d+동|\d+[-–]\d+)', nxt):
+                parts.append(nxt)
+            else:
+                break
+        return ', '.join(parts)
+    return ''
+
+
+def _shipping_extract_name(lines, phone='', address=''):
+    label_re = re.compile(r'^(?:👤\s*)?(?:ism|name|이름|성명|수취인|받는\s*분|받는\s*사람)\s*[:：\-]?\s*(.+)$', re.I)
+    for raw in lines:
+        line = _shipping_clean_line(raw)
+        m = label_re.match(line)
+        if m:
+            value = _shipping_clean_line(m.group(1))
+            if 1 < len(value) <= 80:
+                return value
+
+    # Common screenshot shape: name / phone / address on separate lines.
+    for raw in lines:
+        line = _shipping_clean_line(raw)
+        if not line or len(line) > 60:
+            continue
+        low = line.casefold()
+        if _shipping_phone_from_text(line) or _shipping_is_address_line(line):
+            continue
+        if address and line in address:
+            continue
+        if any(key in low for key in ('주문', '배송', '주소', '전화', 'phone', 'tel', 'mobile', 'order', 'manzil', 'kitob', 'book', '₩', '원')):
+            continue
+        if re.search(r'[A-Za-z가-힣А-Яа-яʻʼ’‘`\']', line):
+            return line.strip(' -:：')
+    return ''
+
+
+def _shipping_qty_from_line(line, book_name):
+    line = str(line or '')
+    # Prefer quantity close to a book line; ignore prices/phones by capping at 99.
+    candidates = []
+    for m in re.finditer(r'(?<!\d)(\d{1,2})\s*(?:ta|dona|x|×)?(?!\d)', line, flags=re.I):
+        try:
+            value = int(m.group(1))
+        except Exception:
+            continue
+        if 1 <= value <= 99:
+            candidates.append(value)
+    return candidates[-1] if candidates else 1
+
+
+def _shipping_extract_books(lines, whole_text):
+    refresh_books()
+    found = {}
+    whole_key = _search_key(whole_text)
+
+    # High-confidence exact/substring matches first.
+    for book in books:
+        name = str(book.get('name') or '').strip()
+        key = _search_key(name)
+        if len(key.replace(' ', '')) < 4 or not key:
+            continue
+        match_line = ''
+        for raw in lines:
+            line_key = _search_key(raw)
+            if key == line_key or key in line_key:
+                match_line = str(raw)
+                break
+        if not match_line and key in whole_key:
+            match_line = str(whole_text)
+        if match_line:
+            found[str(book.get('id'))] = {
+                'name': name,
+                'qty': _shipping_qty_from_line(match_line, name),
+            }
+
+    # If no exact title was present, try conservative fuzzy matching on short lines.
+    if not found:
+        for raw in lines:
+            line = _shipping_clean_line(raw)
+            if not line or len(line) > 90:
+                continue
+            if _shipping_phone_from_text(line) or _shipping_is_address_line(line):
+                continue
+            query = re.sub(r'(?<!\d)\d{1,2}\s*(?:ta|dona|x|×)?\s*$', '', line, flags=re.I).strip(' -:：•')
+            if len(_search_key(query).replace(' ', '')) < 4:
+                continue
+            matches = _instagram_fuzzy_matches(query)
+            if not matches:
+                continue
+            book = matches[0]
+            if _fuzzy_ratio(query, book.get('name', '')) < 0.80:
+                continue
+            found[str(book.get('id'))] = {
+                'name': str(book.get('name') or 'Kitob'),
+                'qty': _shipping_qty_from_line(line, book.get('name', '')),
+            }
+
+    if not found:
+        return ''
+    return '\n'.join(f"• {item['name']} × {int(item['qty'])}" for item in found.values())
+
+
+def parse_smart_shipping_text(raw):
+    raw = str(raw or '').strip()
+    lines = [_shipping_clean_line(x) for x in raw.splitlines() if _shipping_clean_line(x)]
+    phone = _shipping_phone_from_text(raw)
+    address = _shipping_extract_address(lines)
+    name = _shipping_extract_name(lines, phone, address)
+    book_text = _shipping_extract_books(lines, raw)
+    return {
+        'name': name,
+        'phone': phone,
+        'address': address,
+        'books': book_text,
+        'raw_text': raw,
+    }
+
+
+def _shipping_ocr_photo(file_id):
+    tmp = os.path.join(DATA_DIR, f"shipping_ocr_{int(time.time() * 1000)}.jpg")
+    try:
+        download_telegram_file(file_id, tmp)
+        last_error = ''
+        for lang in ('kor+eng', 'eng'):
+            try:
+                result = subprocess.run(
+                    ['tesseract', tmp, 'stdout', '-l', lang, '--psm', '6'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    timeout=30,
+                    check=False,
+                )
+                text = str(result.stdout or '').strip()
+                if text:
+                    return text
+                last_error = str(result.stderr or '').strip()
+            except Exception as exc:
+                last_error = str(exc)
+        raise RuntimeError(last_error or 'Rasmdagi matn aniqlanmadi')
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
+
+def smart_shipping_preview(state):
+    return (
+        '📦 ZAKAS — TEKSHIRING\n\n'
+        f"👤 Ism: {state.get('name') or '—'}\n"
+        f"📞 Telefon: {state.get('phone') or '—'}\n"
+        f"📍 Manzil: {state.get('address') or '—'}\n\n"
+        '📚 Kitoblar:\n'
+        f"{state.get('books') or '—'}"
+    )
+
+
+def smart_shipping_confirm_keyboard():
+    return {'inline_keyboard': [
+        [{'text': '✅ Saqlash', 'callback_data': 'shipsmart_save'}],
+        [{'text': '❌ Bekor qilish', 'callback_data': 'shipsmart_cancel'}],
+    ]}
+
+
+def _smart_shipping_ask_next(chat_id, state):
+    if not str(state.get('name') or '').strip():
+        state['action'] = 'shipping_smart_missing_name'
+        send(chat_id, '👤 Ismni topolmadim. Faqat mijoz ismini yozing:')
+        return
+    if not str(state.get('phone') or '').strip():
+        state['action'] = 'shipping_smart_missing_phone'
+        send(chat_id, '📞 Telefon raqamini topolmadim. Faqat raqamni yozing:')
+        return
+    if not str(state.get('address') or '').strip():
+        state['action'] = 'shipping_smart_missing_address'
+        send(chat_id, '📍 Manzilni topolmadim. Faqat to‘liq manzilni yozing:')
+        return
+    if not str(state.get('books') or '').strip():
+        state['action'] = 'shipping_smart_missing_books'
+        send(
+            chat_id,
+            '📚 Matn/rasm ichida kitob nomi yo‘q ekan.\n\n'
+            'Faqat qaysi kitob(lar)ga zakas qilganini yozing.\n'
+            'Masalan:\nDafina 1 ta\nSaodat asri 2 ta'
+        )
+        return
+    state['action'] = 'shipping_smart_confirm'
+    send(chat_id, smart_shipping_preview(state), smart_shipping_confirm_keyboard())
+
+
+def _send_saved_shipping_entry(chat_id, entry):
+    send(chat_id, '✅ Zakas Zakaslar bo‘limiga saqlandi.')
+    photo_id = str(entry.get('address_photo_file_id') or '').strip()
+    if photo_id:
+        try:
+            api('sendPhoto', {
+                'chat_id': chat_id,
+                'photo': photo_id,
+                'caption': shipping_entry_text(entry),
+                'reply_markup': json.dumps(shipping_entry_keyboard(entry), ensure_ascii=False),
+            })
+        except Exception:
+            send(chat_id, shipping_entry_text(entry), shipping_entry_keyboard(entry))
+    else:
+        send(chat_id, shipping_entry_text(entry), shipping_entry_keyboard(entry))
+    send(chat_id, '📦 Zakaslar', shipping_queue_menu())
 
 
 # =========================
@@ -3605,9 +3886,17 @@ def handle_message(message):
             states.pop(chat_id, None); send_shipping_queue(chat_id, "manual"); return
         if text == "⬅️ Admin panel":
             states.pop(chat_id, None); send(chat_id, "⚙️ Admin panel", admin_menu()); return
-        if text == "➕ Qo‘lda zakas":
-            states[chat_id] = {"action": "shipping_name"}
-            send(chat_id, "👤 Mijoz ismini yozing:", {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True})
+        if text in ("➕ SMS / rasm", "➕ Qo‘lda zakas"):
+            states[chat_id] = {"action": "shipping_smart_input"}
+            send(
+                chat_id,
+                "📩 ZAKASNI TEZ KIRITISH\n\n"
+                "Instagram yoki boshqa joydan kelgan xabarni BUTUNLIGICHA yuboring.\n"
+                "Yoki manzil/zakas screenshotini rasm qilib yuboring.\n\n"
+                "Men ism, telefon, manzil va kitoblarni o‘zim ajrataman. "
+                "Agar kitob nomi xabarda bo‘lmasa, faqat kitobni alohida so‘rayman.",
+                {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True}
+            )
             return
 
         if text == "📷 Instagram savdo":
@@ -3824,76 +4113,67 @@ def handle_message(message):
         if state:
             action = state.get("action")
 
-            if action == "shipping_name":
+            if action == "shipping_smart_input":
+                photos = message.get("photo") or []
+                caption = str(message.get("caption") or "").strip()
+                raw = text
+                photo_id = ""
+                if photos:
+                    photo_id = str(photos[-1].get("file_id") or "")
+                    try:
+                        ocr_text = _shipping_ocr_photo(photo_id)
+                    except Exception as exc:
+                        print("Zakas OCR xatosi:", exc)
+                        ocr_text = ""
+                    raw = "\n".join(x for x in (ocr_text, caption) if x).strip()
+                    state["address_photo_file_id"] = photo_id
+                if not raw:
+                    send(chat_id, "❌ Matnni o‘qiy olmadim. Xabarni matn ko‘rinishida yuboring yoki tiniqroq screenshot yuboring.")
+                    return
+                parsed = parse_smart_shipping_text(raw)
+                for key in ("name", "phone", "address", "books", "raw_text"):
+                    if parsed.get(key):
+                        state[key] = parsed[key]
+                _smart_shipping_ask_next(chat_id, state)
+                return
+
+            if action == "shipping_smart_missing_name":
                 if not text:
                     send(chat_id, "❌ Ismni yozing.")
                     return
-                state["name"] = text
-                state["action"] = "shipping_phone"
-                send(chat_id, "📞 Telefon raqamini yozing.\nMasalan: 01012345678")
+                state["name"] = text.strip()
+                _smart_shipping_ask_next(chat_id, state)
                 return
 
-            if action == "shipping_phone":
+            if action == "shipping_smart_missing_phone":
+                phone = _shipping_phone_from_text(text)
+                if not phone:
+                    send(chat_id, "❌ Telefon raqamini to‘g‘ri yozing. Masalan: 01012345678")
+                    return
+                state["phone"] = phone
+                _smart_shipping_ask_next(chat_id, state)
+                return
+
+            if action == "shipping_smart_missing_address":
                 if not text:
-                    send(chat_id, "❌ Telefon raqamini yozing.")
+                    send(chat_id, "❌ To‘liq manzilni yozing.")
                     return
-                state["phone"] = text
-                state["action"] = "shipping_address"
-                send(chat_id, "📍 To‘liq manzilni yozing.\n\nIstasangiz manzil screenshot/rasmini ham yuborishingiz mumkin. Rasm yuborsangiz, nusxa olish uchun keyin manzil matnini ham so‘rayman.")
+                state["address"] = text.strip()
+                _smart_shipping_ask_next(chat_id, state)
                 return
 
-            if action == "shipping_address":
-                photos = message.get("photo") or []
-                caption = str(message.get("caption") or "").strip()
-                if photos:
-                    state["address_photo_file_id"] = str(photos[-1].get("file_id") or "")
-                    if caption:
-                        state["address"] = caption
-                        state["action"] = "shipping_books"
-                        send(chat_id, "📚 Qaysi kitob(lar)ni zakas qilganini yozing.\nMasalan:\nDafina 1 ta\nSaodat asri 2 ta")
-                    else:
-                        state["action"] = "shipping_address_text"
-                        send(chat_id, "✅ Manzil rasmi saqlandi.\n\n📍 Endi nusxa olish uchun manzilni MATN ko‘rinishida yozing:")
-                    return
-                if not text:
-                    send(chat_id, "❌ Manzilni yozing yoki manzil rasmini yuboring.")
-                    return
-                state["address"] = text
-                state["action"] = "shipping_books"
-                send(chat_id, "📚 Qaysi kitob(lar)ni zakas qilganini yozing.\nMasalan:\nDafina 1 ta\nSaodat asri 2 ta")
-                return
-
-            if action == "shipping_address_text":
-                if not text:
-                    send(chat_id, "❌ Manzil matnini yozing.")
-                    return
-                state["address"] = text
-                state["action"] = "shipping_books"
-                send(chat_id, "📚 Qaysi kitob(lar)ni zakas qilganini yozing.\nMasalan:\nDafina 1 ta\nSaodat asri 2 ta")
-                return
-
-            if action == "shipping_books":
+            if action == "shipping_smart_missing_books":
                 if not text:
                     send(chat_id, "❌ Kitob nomi va sonini yozing.")
                     return
-                state["books"] = text
-                entry = save_manual_shipping_order(state)
-                states.pop(chat_id, None)
-                send(chat_id, "✅ Zakas Zakaslar bo‘limiga saqlandi.")
-                photo_id = str(entry.get("address_photo_file_id") or "").strip()
-                if photo_id:
-                    try:
-                        api("sendPhoto", {
-                            "chat_id": chat_id,
-                            "photo": photo_id,
-                            "caption": shipping_entry_text(entry),
-                            "reply_markup": json.dumps(shipping_entry_keyboard(entry), ensure_ascii=False),
-                        })
-                    except Exception:
-                        send(chat_id, shipping_entry_text(entry), shipping_entry_keyboard(entry))
-                else:
-                    send(chat_id, shipping_entry_text(entry), shipping_entry_keyboard(entry))
-                send(chat_id, "📦 Zakaslar", shipping_queue_menu())
+                # Admin yozgan kitob nomini imkon qadar katalogdagi to‘liq nomga aylantiramiz.
+                parsed_books = _shipping_extract_books([text], text)
+                state["books"] = parsed_books or text.strip()
+                _smart_shipping_ask_next(chat_id, state)
+                return
+
+            if action == "shipping_smart_confirm":
+                send(chat_id, smart_shipping_preview(state), smart_shipping_confirm_keyboard())
                 return
 
             if action == "instagram_items":
@@ -4464,6 +4744,7 @@ def handle_message(message):
             "📦 Zakaslar",
             "📋 Barcha zakaslar",
             "➕ Qo‘lda zakas",
+            "➕ SMS / rasm",
             "🤖 Bot zakaslari",
             "📱 Ilova zakaslari",
             "✍️ Qo‘lda kiritilgan",
@@ -4890,6 +5171,28 @@ def handle_callback(callback):
 
     # Callback ham botdan foydalanish hisoblanadi.
     register_user(chat_id, callback.get("from", {}))
+
+    if data == "shipsmart_save":
+        if not is_admin(chat_id):
+            return
+        state = states.get(chat_id, {})
+        if state.get("action") != "shipping_smart_confirm":
+            send(chat_id, "ℹ️ Saqlanadigan zakas topilmadi.", shipping_queue_menu())
+            return
+        try:
+            entry = save_manual_shipping_order(state)
+        except Exception as exc:
+            send(chat_id, f"❌ Zakas saqlanmadi: {exc}", shipping_queue_menu())
+            return
+        states.pop(chat_id, None)
+        _send_saved_shipping_entry(chat_id, entry)
+        return
+
+    if data == "shipsmart_cancel":
+        if is_admin(chat_id):
+            states.pop(chat_id, None)
+            send(chat_id, "❎ Zakas kiritish bekor qilindi.", shipping_queue_menu())
+        return
 
     if data.startswith("shipdel_"):
         if not is_admin(chat_id):
