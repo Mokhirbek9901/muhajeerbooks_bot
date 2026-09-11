@@ -1,0 +1,33 @@
+name: Apply smart postal intake
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apply_smart_shipping_intake.py'
+      - '.github/workflows/apply_smart_shipping_intake.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply smart shipping intake
+        run: python apply_smart_shipping_intake.py
+      - name: Syntax check
+        run: python -m py_compile bot.py cloud_bridge.py bot_runtime_launcher.py
+      - name: Commit bot update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- bot.py; then
+            echo "No bot changes"
+            exit 0
+          fi
+          git add bot.py
+          git commit -m "Parse postal orders from message or screenshot"
+          git push
