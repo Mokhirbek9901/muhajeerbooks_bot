@@ -37,6 +37,7 @@ FAVORITES_FILE = os.path.join(DATA_DIR, "favorites.json")
 RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
 RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 EXPENSES_FILE = os.path.join(DATA_DIR, "expenses.json")
+SHIPPING_QUEUE_FILE = os.path.join(DATA_DIR, "shipping_queue.json")
 BOOK_IMPORT_MARKER = os.path.join(DATA_DIR, "books_import_20260906_v1.done")
 LOW_STOCK_LIMIT = 2
 STATS_RESET_ORDER_ID = 1788893918395  # 2026-09-08 final production reset
@@ -1274,6 +1275,269 @@ def find_book(book_id):
     return None
 
 
+
+# =========================
+# POCHTA UCHUN ZAKASLAR
+# =========================
+
+def _shipping_queue_load():
+    try:
+        with open(SHIPPING_QUEUE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError
+    except Exception:
+        data = {}
+    manual = data.get("manual")
+    dismissed = data.get("dismissed_order_ids")
+    return {
+        "manual": manual if isinstance(manual, dict) else {},
+        "dismissed_order_ids": [str(x) for x in dismissed] if isinstance(dismissed, list) else [],
+    }
+
+
+def _shipping_queue_save(data):
+    safe = {
+        "manual": data.get("manual", {}) if isinstance(data.get("manual", {}), dict) else {},
+        "dismissed_order_ids": sorted(set(str(x) for x in data.get("dismissed_order_ids", []))),
+    }
+    tmp = SHIPPING_QUEUE_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(safe, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, SHIPPING_QUEUE_FILE)
+
+
+def _shipping_books_text(order):
+    lines = []
+    items = order.get("items")
+    if isinstance(items, list) and items:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("title") or "Kitob").strip() or "Kitob"
+            try:
+                qty = max(1, int(item.get("qty") or item.get("quantity") or 1))
+            except Exception:
+                qty = 1
+            lines.append(f"• {name} × {qty}")
+    if not lines:
+        for bid, qty_raw in (order.get("cart") or {}).items():
+            try:
+                qty = max(1, int(qty_raw))
+            except Exception:
+                qty = 1
+            book = find_book(bid)
+            name = str((book or {}).get("name") or f"Kitob #{bid}")
+            lines.append(f"• {name} × {qty}")
+    return "\n".join(lines) if lines else "• Kitob ma’lumoti yo‘q"
+
+
+def _shipping_source_label(source):
+    return {
+        "telegram": "🤖 Telegram bot",
+        "app": "📱 Ilova / Web",
+        "manual": "✍️ Qo‘lda",
+    }.get(str(source), "📦 Zakas")
+
+
+def _shipping_status_label(status):
+    return {
+        "pending": "🟡 Kutilmoqda",
+        "accepted": "📦 Qabul qilingan",
+        "paid": "🟢 To‘langan",
+        "shipped": "🚚 Jo‘natilgan",
+    }.get(str(status), str(status or "—"))
+
+
+def shipping_queue_entries(source_filter="all"):
+    load_orders()
+    data = _shipping_queue_load()
+    dismissed = set(data.get("dismissed_order_ids", []))
+    entries = []
+
+    for key, order in orders.items():
+        if not isinstance(order, dict):
+            continue
+        source = str(order.get("source") or "telegram")
+        if source not in ("telegram", "app"):
+            continue
+        status = str(order.get("status") or "pending")
+        if status in ("cancelled", "stock_problem"):
+            continue
+        try:
+            oid_num = int(order.get("order_id", key) or 0)
+        except Exception:
+            oid_num = 0
+        if oid_num and oid_num < STATS_RESET_ORDER_ID:
+            continue
+        oid = str(order.get("order_id") or key)
+        if oid in dismissed:
+            continue
+        if source_filter not in ("all", source):
+            continue
+        phone = str(order.get("phone") or "").strip()
+        address = str(order.get("address") or "").strip()
+        name = str(order.get("name") or "Noma’lum").strip() or "Noma’lum"
+        if not phone and not address:
+            continue
+        entries.append({
+            "queue_kind": "order",
+            "queue_id": oid,
+            "source": source,
+            "name": name,
+            "phone": phone or "—",
+            "address": address or "—",
+            "books": _shipping_books_text(order),
+            "status": status,
+            "created_at": str(order.get("created_at") or ""),
+            "address_photo_file_id": "",
+        })
+
+    if source_filter in ("all", "manual"):
+        for mid, row in (data.get("manual") or {}).items():
+            if not isinstance(row, dict):
+                continue
+            entry = dict(row)
+            entry.update({
+                "queue_kind": "manual",
+                "queue_id": str(mid),
+                "source": "manual",
+                "status": "manual",
+            })
+            entries.append(entry)
+
+    entries.sort(key=lambda e: str(e.get("created_at") or ""), reverse=True)
+    return entries
+
+
+def shipping_queue_menu():
+    return {
+        "keyboard": [
+            [{"text": "📋 Barcha zakaslar"}, {"text": "➕ Qo‘lda zakas"}],
+            [{"text": "🤖 Bot zakaslari"}, {"text": "📱 Ilova zakaslari"}],
+            [{"text": "✍️ Qo‘lda kiritilgan"}],
+            [{"text": "⬅️ Admin panel"}],
+        ],
+        "resize_keyboard": True,
+    }
+
+
+def _shipping_copy_button(label, value):
+    value = str(value or "").strip()
+    if not value or value == "—" or len(value) > 256:
+        return None
+    return {"text": label, "copy_text": {"text": value}}
+
+
+def shipping_entry_keyboard(entry):
+    rows = []
+    name_btn = _shipping_copy_button("👤 Ismni nusxalash", entry.get("name"))
+    phone_btn = _shipping_copy_button("📞 Telefonni nusxalash", entry.get("phone"))
+    address_btn = _shipping_copy_button("📍 Manzilni nusxalash", entry.get("address"))
+    if name_btn:
+        rows.append([name_btn])
+    if phone_btn:
+        rows.append([phone_btn])
+    if address_btn:
+        rows.append([address_btn])
+    kind = "m" if entry.get("queue_kind") == "manual" else "o"
+    rows.append([{
+        "text": "🗑 Zakasni o‘chirish",
+        "callback_data": f"shipdel_{kind}_{entry.get('queue_id')}",
+    }])
+    return {"inline_keyboard": rows}
+
+
+def shipping_entry_text(entry, index=None):
+    head = f"📦 ZAKAS {index}" if index is not None else "📦 ZAKAS"
+    source = _shipping_source_label(entry.get("source"))
+    lines = [
+        head,
+        f"{source}",
+        "",
+        f"👤 Ism: {entry.get('name') or '—'}",
+        f"📞 Telefon: {entry.get('phone') or '—'}",
+        f"📍 Manzil: {entry.get('address') or '—'}",
+        "",
+        "📚 Kitoblar:",
+        str(entry.get("books") or "• Kitob ma’lumoti yo‘q"),
+    ]
+    if entry.get("queue_kind") == "order":
+        lines.extend(["", f"Holati: {_shipping_status_label(entry.get('status'))}"])
+    return "\n".join(lines)
+
+
+def send_shipping_queue(chat_id, source_filter="all"):
+    entries = shipping_queue_entries(source_filter)
+    labels = {
+        "all": "BARCHA ZAKASLAR",
+        "telegram": "BOT ZAKASLARI",
+        "app": "ILOVA ZAKASLARI",
+        "manual": "QO‘LDA KIRITILGAN",
+    }
+    if not entries:
+        send(chat_id, f"📦 {labels.get(source_filter, 'ZAKASLAR')}\n\nHozircha zakas yo‘q.", shipping_queue_menu())
+        return
+    send(chat_id, f"📦 {labels.get(source_filter, 'ZAKASLAR')} — {len(entries)} ta\n\nTelefon va manzilni alohida tugma bilan nusxalashingiz mumkin.")
+    for index, entry in enumerate(entries[:40], 1):
+        text = shipping_entry_text(entry, index)
+        markup = shipping_entry_keyboard(entry)
+        photo_id = str(entry.get("address_photo_file_id") or "").strip()
+        if photo_id:
+            try:
+                api("sendPhoto", {
+                    "chat_id": chat_id,
+                    "photo": photo_id,
+                    "caption": text,
+                    "reply_markup": json.dumps(markup, ensure_ascii=False),
+                })
+                continue
+            except Exception as exc:
+                print("Zakas manzil rasmini yuborish xatosi:", exc)
+        send(chat_id, text, markup)
+    if len(entries) > 40:
+        send(chat_id, f"ℹ️ Hozir birinchi 40 ta ko‘rsatildi. Jami {len(entries)} ta.", shipping_queue_menu())
+    else:
+        send(chat_id, "✅ Pochta uchun zakaslar shu yerda.", shipping_queue_menu())
+
+
+def save_manual_shipping_order(state):
+    data = _shipping_queue_load()
+    manual = data.setdefault("manual", {})
+    mid = str(int(time.time() * 1000))
+    while mid in manual:
+        time.sleep(0.001)
+        mid = str(int(time.time() * 1000))
+    manual[mid] = {
+        "name": str(state.get("name") or "Noma’lum").strip() or "Noma’lum",
+        "phone": str(state.get("phone") or "—").strip() or "—",
+        "address": str(state.get("address") or "—").strip() or "—",
+        "books": str(state.get("books") or "• Kitob ma’lumoti yo‘q").strip(),
+        "address_photo_file_id": str(state.get("address_photo_file_id") or "").strip(),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    _shipping_queue_save(data)
+    entry = dict(manual[mid])
+    entry.update({"queue_kind": "manual", "queue_id": mid, "source": "manual", "status": "manual"})
+    return entry
+
+
+def delete_shipping_queue_entry(kind, queue_id):
+    data = _shipping_queue_load()
+    queue_id = str(queue_id)
+    if kind == "m":
+        existed = queue_id in data.get("manual", {})
+        data.get("manual", {}).pop(queue_id, None)
+    else:
+        dismissed = set(data.get("dismissed_order_ids", []))
+        existed = queue_id not in dismissed
+        dismissed.add(queue_id)
+        data["dismissed_order_ids"] = sorted(dismissed)
+    _shipping_queue_save(data)
+    return existed
+
 # =========================
 # MENYULAR
 # =========================
@@ -1318,6 +1582,7 @@ def admin_menu():
             [{"text": "⚡ Tezkor qoldiq"}],
             [{"text": "📚 Sotilgan kitoblar"}],
             [{"text": "📷 Instagram savdo"}],
+            [{"text": "📦 Zakaslar"}],
             [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
             [{"text": "📅 Bugungi hisobot"}],
             [{"text": "💰 Moliya"}, {"text": "➕ Xarajat"}],
@@ -3383,6 +3648,26 @@ def handle_message(message):
                 send(chat_id, f"❌ Sotuv tarixini ochib bo‘lmadi: {e}", admin_menu())
             return
 
+        if text == "📦 Zakaslar":
+            states.pop(chat_id, None)
+            send(chat_id, "📦 ZAKASLAR\n\nPochta ilovasiga ko‘chirish uchun zakaslarni shu yerda boshqarasiz.", shipping_queue_menu())
+            return
+
+        if text == "📋 Barcha zakaslar":
+            states.pop(chat_id, None); send_shipping_queue(chat_id, "all"); return
+        if text == "🤖 Bot zakaslari":
+            states.pop(chat_id, None); send_shipping_queue(chat_id, "telegram"); return
+        if text == "📱 Ilova zakaslari":
+            states.pop(chat_id, None); send_shipping_queue(chat_id, "app"); return
+        if text == "✍️ Qo‘lda kiritilgan":
+            states.pop(chat_id, None); send_shipping_queue(chat_id, "manual"); return
+        if text == "⬅️ Admin panel":
+            states.pop(chat_id, None); send(chat_id, "⚙️ Admin panel", admin_menu()); return
+        if text == "➕ Qo‘lda zakas":
+            states[chat_id] = {"action": "shipping_name"}
+            send(chat_id, "👤 Mijoz ismini yozing:", {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True})
+            return
+
         if text == "📷 Instagram savdo":
             states[chat_id] = {"action": "instagram_items"}
             send(
@@ -3596,6 +3881,78 @@ def handle_message(message):
 
         if state:
             action = state.get("action")
+
+            if action == "shipping_name":
+                if not text:
+                    send(chat_id, "❌ Ismni yozing.")
+                    return
+                state["name"] = text
+                state["action"] = "shipping_phone"
+                send(chat_id, "📞 Telefon raqamini yozing.\nMasalan: 01012345678")
+                return
+
+            if action == "shipping_phone":
+                if not text:
+                    send(chat_id, "❌ Telefon raqamini yozing.")
+                    return
+                state["phone"] = text
+                state["action"] = "shipping_address"
+                send(chat_id, "📍 To‘liq manzilni yozing.\n\nIstasangiz manzil screenshot/rasmini ham yuborishingiz mumkin. Rasm yuborsangiz, nusxa olish uchun keyin manzil matnini ham so‘rayman.")
+                return
+
+            if action == "shipping_address":
+                photos = message.get("photo") or []
+                caption = str(message.get("caption") or "").strip()
+                if photos:
+                    state["address_photo_file_id"] = str(photos[-1].get("file_id") or "")
+                    if caption:
+                        state["address"] = caption
+                        state["action"] = "shipping_books"
+                        send(chat_id, "📚 Qaysi kitob(lar)ni zakas qilganini yozing.\nMasalan:\nDafina 1 ta\nSaodat asri 2 ta")
+                    else:
+                        state["action"] = "shipping_address_text"
+                        send(chat_id, "✅ Manzil rasmi saqlandi.\n\n📍 Endi nusxa olish uchun manzilni MATN ko‘rinishida yozing:")
+                    return
+                if not text:
+                    send(chat_id, "❌ Manzilni yozing yoki manzil rasmini yuboring.")
+                    return
+                state["address"] = text
+                state["action"] = "shipping_books"
+                send(chat_id, "📚 Qaysi kitob(lar)ni zakas qilganini yozing.\nMasalan:\nDafina 1 ta\nSaodat asri 2 ta")
+                return
+
+            if action == "shipping_address_text":
+                if not text:
+                    send(chat_id, "❌ Manzil matnini yozing.")
+                    return
+                state["address"] = text
+                state["action"] = "shipping_books"
+                send(chat_id, "📚 Qaysi kitob(lar)ni zakas qilganini yozing.\nMasalan:\nDafina 1 ta\nSaodat asri 2 ta")
+                return
+
+            if action == "shipping_books":
+                if not text:
+                    send(chat_id, "❌ Kitob nomi va sonini yozing.")
+                    return
+                state["books"] = text
+                entry = save_manual_shipping_order(state)
+                states.pop(chat_id, None)
+                send(chat_id, "✅ Zakas Zakaslar bo‘limiga saqlandi.")
+                photo_id = str(entry.get("address_photo_file_id") or "").strip()
+                if photo_id:
+                    try:
+                        api("sendPhoto", {
+                            "chat_id": chat_id,
+                            "photo": photo_id,
+                            "caption": shipping_entry_text(entry),
+                            "reply_markup": json.dumps(shipping_entry_keyboard(entry), ensure_ascii=False),
+                        })
+                    except Exception:
+                        send(chat_id, shipping_entry_text(entry), shipping_entry_keyboard(entry))
+                else:
+                    send(chat_id, shipping_entry_text(entry), shipping_entry_keyboard(entry))
+                send(chat_id, "📦 Zakaslar", shipping_queue_menu())
+                return
 
             if action == "instagram_items":
                 cart, errors = parse_instagram_sale_items(text)
@@ -4161,7 +4518,14 @@ def handle_message(message):
             "📜 Mening buyurtmalarim",
             "🔢 Buyurtmani tekshirish",
             "📦 Zakaz berish",
-            "📞 Bog‘lanish"
+            "📞 Bog‘lanish",
+            "📦 Zakaslar",
+            "📋 Barcha zakaslar",
+            "➕ Qo‘lda zakas",
+            "🤖 Bot zakaslari",
+            "📱 Ilova zakaslari",
+            "✍️ Qo‘lda kiritilgan",
+            "⬅️ Admin panel"
         ):
             send(
                 chat_id,
@@ -4584,6 +4948,38 @@ def handle_callback(callback):
 
     # Callback ham botdan foydalanish hisoblanadi.
     register_user(chat_id, callback.get("from", {}))
+
+    if data.startswith("shipdel_"):
+        if not is_admin(chat_id):
+            return
+        parts = data.split("_", 2)
+        if len(parts) != 3 or parts[1] not in ("m", "o"):
+            return
+        kind, queue_id = parts[1], parts[2]
+        send(
+            chat_id,
+            "⚠️ Rostdan ham bu zakasni POCHTA ZAKASLAR ro‘yxatidan o‘chirasizmi?\n\nAsl buyurtma, ombor va statistika o‘zgarmaydi.",
+            {"inline_keyboard": [
+                [{"text": "✅ Ha, o‘chirish", "callback_data": f"shipdelok_{kind}_{queue_id}"}],
+                [{"text": "❌ Yo‘q", "callback_data": "shipdelno"}],
+            ]},
+        )
+        return
+
+    if data.startswith("shipdelok_"):
+        if not is_admin(chat_id):
+            return
+        parts = data.split("_", 2)
+        if len(parts) != 3 or parts[1] not in ("m", "o"):
+            return
+        delete_shipping_queue_entry(parts[1], parts[2])
+        send(chat_id, "✅ Zakas pochta ro‘yxatidan o‘chirildi. Asl buyurtmaga tegilmadi.", shipping_queue_menu())
+        return
+
+    if data == "shipdelno":
+        if is_admin(chat_id):
+            send(chat_id, "❎ O‘chirish bekor qilindi.", shipping_queue_menu())
+        return
 
     # =========================
     # HOME
