@@ -20,7 +20,12 @@ jobs:
       - name: Patch bot finance UI
         run: python3 tools/add_unified_finance_20260910.py
       - name: Verify Python
-        run: python3 -m py_compile bot.py cloud_bridge.py sync_wrapper.py bot_runtime_launcher.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('bot.py', 'cloud_bridge.py', 'sync_wrapper.py', 'bot_runtime_launcher.py'):
+              compile(Path(name).read_text(encoding='utf-8'), name, 'exec')
+          PY
       - name: Verify finance hooks
         run: |
           python3 - <<'PY'
@@ -37,7 +42,7 @@ jobs:
           PY
       - name: Commit finance bot
         run: |
-          if git diff --quiet; then
+          if git diff --quiet -- bot.py; then
             echo "No changes needed"
             exit 0
           fi
