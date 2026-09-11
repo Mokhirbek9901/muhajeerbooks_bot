@@ -116,6 +116,47 @@ def add_finance_expense(amount, category="postage", note="", expense_date=None):
     return rpc("bot_add_finance_expense", payload)
 
 
+def shipping_queue_list():
+    result = rpc(
+        "bot_shipping_queue_list",
+        {"p_secret": SYNC_SECRET},
+    )
+    return result if isinstance(result, list) else []
+
+
+def shipping_queue_add(name, phone, address, books, address_photo_file_id=""):
+    return rpc(
+        "bot_shipping_queue_add",
+        {
+            "p_secret": SYNC_SECRET,
+            "p_name": str(name or "").strip(),
+            "p_phone": str(phone or "").strip(),
+            "p_address": str(address or "").strip(),
+            "p_books": str(books or "").strip(),
+            "p_address_photo_file_id": str(address_photo_file_id or "").strip(),
+        },
+    )
+
+
+def shipping_queue_dismiss(kind, queue_id):
+    normalized_kind = {
+        "m": "manual",
+        "o": "order",
+        "manual": "manual",
+        "order": "order",
+    }.get(str(kind or "").strip())
+    if not normalized_kind:
+        raise ValueError("Zakas turi noto‘g‘ri")
+    return rpc(
+        "bot_shipping_queue_dismiss",
+        {
+            "p_secret": SYNC_SECRET,
+            "p_kind": normalized_kind,
+            "p_id": str(queue_id or "").strip(),
+        },
+    )
+
+
 def mark_instagram_order(cloud_id):
     return rpc(
         "bot_mark_instagram_order",
