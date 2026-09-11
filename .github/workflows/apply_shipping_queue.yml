@@ -1,0 +1,32 @@
+name: Apply shipping queue feature
+
+on:
+  push:
+    paths:
+      - 'apply_shipping_queue_patch.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply shipping queue patch
+        run: python apply_shipping_queue_patch.py
+      - name: Syntax check
+        run: python -m py_compile bot.py
+      - name: Commit patched bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot.py
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Add postal shipping queue to Telegram admin"
+            git push
+          fi
