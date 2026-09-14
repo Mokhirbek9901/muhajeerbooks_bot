@@ -71,3 +71,6 @@ def post_json(url, payload, headers, timeout, max_attempts=4, sleeper=time.sleep
         sleeper(delay)
 
     raise RuntimeError("Supabase so‘rovi bajarilmadi")
+
+# Railway watchPatterns ushbu modulni ham kuzatadi; bu retry siyosati
+# o'zgarsa keyingi commit avtomatik production buildni ishga tushiradi.
