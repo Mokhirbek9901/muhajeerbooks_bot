@@ -1155,16 +1155,7 @@ def book_detail_keyboard(book, chat_id):
 def send_book_detail(chat_id, book):
     text = book_detail_text(book)
     markup = book_detail_keyboard(book, chat_id)
-    image_url = str(book.get("image_url", "") or "").strip()
-    photo_id = str(book.get("photo_id", "") or "").strip()
-    # Cloudga ulangan kitobda image_url rasmning yagona haqiqiy manbasi.
-    photo = image_url if str(book.get("cloud_id", "") or "").strip() else (image_url or photo_id)
-    if photo:
-        try:
-            api("sendPhoto", {"chat_id": chat_id, "photo": photo, "caption": text, "reply_markup": json.dumps(markup, ensure_ascii=False)})
-            return
-        except Exception as e:
-            print("Rasm yuborish xatosi:", e)
+    # Text-only Telegram catalog; preserve image fields for the app.
     send(chat_id, text, markup)
 
 
@@ -2347,31 +2338,9 @@ def inactive_new_books_keyboard():
 
 def send_inactive_message(chat_id):
     refresh_books()
-    candidates = [
-        b for b in books
-        if int(b.get("stock", 0)) > 0
-        and int(b.get("price", 0)) > 0
-        and (str(b.get("image_url", "")).strip() if str(b.get("cloud_id", "")).strip() else (str(b.get("image_url", "")).strip() or str(b.get("photo_id", "")).strip()))
-    ]
 
     text = random.choice(INACTIVE_MESSAGES)
     markup = inactive_new_books_keyboard()
-
-    if candidates:
-        book = random.choice(candidates)
-        try:
-            api(
-                "sendPhoto",
-                {
-                    "chat_id": chat_id,
-                    "photo": (str(book.get("image_url", "") or "").strip() if str(book.get("cloud_id", "") or "").strip() else str(book.get("image_url", "") or book.get("photo_id", "") or "").strip()),
-                    "caption": text,
-                    "reply_markup": json.dumps(markup, ensure_ascii=False)
-                }
-            )
-            return True
-        except Exception as e:
-            print("Faol bo‘lmagan mijozga rasm yuborish xatosi:", chat_id, e)
 
     try:
         send(chat_id, text, markup)

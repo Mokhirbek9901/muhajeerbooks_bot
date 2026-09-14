@@ -1,6 +1,7 @@
 from pathlib import Path
 
-import app_image_sync  # Railway start: app image sync remains enabled.
+# App-to-Telegram cover mirroring is disabled for the text-only bot.
+# Existing cover files and app image URLs are intentionally preserved.
 
 
 def run_bot_patched():

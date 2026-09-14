@@ -25,7 +25,7 @@ ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
 RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
 ORDER_RESET_MARKER = os.path.join(DATA_DIR, "order_history_reset_20260908_v2.done")
-SYNC_INTERVAL = 2
+SYNC_INTERVAL = 60
 CATALOG_RESET_MARKER = os.path.join(DATA_DIR, "catalog_full_reset_20260908_v1.done")
 
 
@@ -722,8 +722,7 @@ def sync_loop():
                     _push_books(changed)
 
             rows = _pull_books()
-            if _sync_app_images_to_telegram(rows, last_cloud_rows):
-                rows = _pull_books()
+            # No app-to-Telegram image downloads or photo-ID rewrites.
 
             merged, unmapped = _merge_books(local, rows)
             if unmapped:
