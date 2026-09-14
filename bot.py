@@ -4211,7 +4211,7 @@ def handle_message(message):
                     return
 
                 fee = int(DELIVERY_FEE) if customer_pays else 0
-                books_total = max(0, received - int(DELIVERY_FEE))
+                books_total = max(0, received - fee)
                 state["books_total"] = books_total
                 state["action"] = "instagram_confirm"
                 postage_text = "Mijoz to‘ladi — ₩4,000" if customer_pays else "Siz to‘ladingiz — ₩4,000 xarajat"
