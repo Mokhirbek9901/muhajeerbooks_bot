@@ -1,7 +1,8 @@
 from pathlib import Path
 
-# App-to-Telegram cover mirroring is disabled for the text-only bot.
-# Existing cover files and app image URLs are intentionally preserved.
+# Telegram kitob kartalarida ilovadagi 1-rasm ko‘rsatiladi.
+# Rasm birinchi ko‘rishda Telegramga cache qilinadi, keyingi ko‘rishlarda
+# Supabase URL emas, Telegram file_id ishlatiladi.
 
 
 def run_bot_patched():
@@ -43,11 +44,199 @@ def run_bot_patched():
     if old_books in source:
         source = source.replace(old_books, new_books, 1)
 
+    # Kitobni bosganda 1-rasm + nomi + narxi + ombor holati ko‘rinadi.
+    # Birinchi marta ilova/Supabase URL Telegramga beriladi; Telegram yaratgan
+    # yengilroq photo file_id saqlanadi va keyingi safar Supabase rasm trafik
+    # umuman ishlatilmaydi. Rasm xira bo‘lmasligi uchun 1280px gacha variant tanlanadi.
+    old_detail = '''def send_book_detail(chat_id, book):
+    text = book_detail_text(book)
+    markup = book_detail_keyboard(book, chat_id)
+    # Text-only Telegram catalog; preserve image fields for the app.
+    send(chat_id, text, markup)
+'''
+    new_detail = r'''def _book_photo_caption(book):
+    stock = int(book.get("stock", 0) or 0)
+    lines = [
+        "📚 MUHAJEER BOOKS",
+        f"📖 {book.get('name', 'Kitob')}",
+        "",
+        price_text(book),
+        f"📦 Holati: {'Sotuvda — ' + str(stock) + ' ta' if stock > 0 else 'Hozircha mavjud emas'}",
+    ]
+    author = str(book.get("author") or "").strip()
+    cover = str(book.get("cover") or "").strip()
+    if author and author != "Ko‘rsatilmagan":
+        lines.append(f"✍️ Muallif: {author}")
+    if cover and cover != "Ko‘rsatilmagan":
+        lines.append(f"📕 Muqova: {cover}")
+    return "\n".join(lines)
+
+
+def _light_telegram_photo_id(result):
+    """Telegram yaratgan variantlardan tiniq, lekin yengilroq file_id tanlaydi."""
+    photos = ((result or {}).get("result") or {}).get("photo") or []
+    valid = [p for p in photos if isinstance(p, dict) and p.get("file_id")]
+    if not valid:
+        return ""
+
+    def area(p):
+        return int(p.get("width") or 0) * int(p.get("height") or 0)
+
+    preferred = [
+        p for p in valid
+        if max(int(p.get("width") or 0), int(p.get("height") or 0)) <= 1280
+        and (not p.get("file_size") or int(p.get("file_size") or 0) <= 650_000)
+    ]
+    if not preferred:
+        preferred = [
+            p for p in valid
+            if max(int(p.get("width") or 0), int(p.get("height") or 0)) <= 1280
+        ]
+    if not preferred:
+        preferred = valid
+    return str(max(preferred, key=area).get("file_id") or "")
+
+
+def _save_telegram_photo_cache(book, file_id):
+    file_id = str(file_id or "").strip()
+    if not file_id:
+        return
+    book["photo_id"] = file_id
+    book["telegram_photo_source_url"] = str(book.get("image_url") or "").strip()
+    book["_telegram_photo_cache_only"] = True
+    try:
+        save_books()
+    except Exception as exc:
+        print("Telegram rasm cache lokal saqlash xatosi:", exc)
+    try:
+        cloud_id = str(book.get("cloud_id") or "").strip()
+        if cloud_id:
+            cloud_bridge.rpc("bot_sync_set_photo", {
+                "p_secret": cloud_bridge.SYNC_SECRET,
+                "p_cloud_id": cloud_id,
+                "p_photo_id": file_id,
+            })
+    except Exception as exc:
+        print("Telegram rasm cache cloud saqlash xatosi:", exc)
+
+
+def send_book_detail(chat_id, book):
+    text = book_detail_text(book)
+    markup = book_detail_keyboard(book, chat_id)
+    photo_id = str(book.get("photo_id") or "").strip()
+    image_url = str(book.get("image_url") or "").strip()
+
+    # Telegram photo caption limiti 1024 belgi. Ko‘p kitoblarda to‘liq ma’lumot
+    # bitta kartaga sig‘adi; juda uzun tavsif bo‘lsa to‘liq matn pastda chiqadi.
+    caption = text if len(text) <= 950 else _book_photo_caption(book)
+    extra_text = "" if caption == text else text
+
+    def send_photo_value(value):
+        return api("sendPhoto", {
+            "chat_id": chat_id,
+            "photo": value,
+            "caption": caption,
+            "reply_markup": json.dumps(markup, ensure_ascii=False),
+        })
+
+    # Cache mavjud: faqat Telegram file_id ishlaydi, Supabase rasm egressi 0.
+    if photo_id:
+        try:
+            result = send_photo_value(photo_id)
+            if extra_text:
+                send(chat_id, extra_text)
+            return result
+        except Exception as exc:
+            print("Telegram cached rasm yuborish xatosi, URL bilan qayta uriniladi:", exc)
+
+    # Cache yo‘q: rasm URL bir marta olinadi, keyin yengil Telegram file_id saqlanadi.
+    if image_url:
+        try:
+            result = send_photo_value(image_url)
+            cached_id = _light_telegram_photo_id(result)
+            if cached_id:
+                _save_telegram_photo_cache(book, cached_id)
+            if extra_text:
+                send(chat_id, extra_text)
+            return result
+        except Exception as exc:
+            print("Telegram rasmli kitob kartasi xatosi:", exc)
+
+    # Rasm yo‘q yoki Telegram rasmni ololmasa funksiyalar yo‘qolmaydi.
+    return send(chat_id, text, markup)
+'''
+    if old_detail not in source:
+        raise RuntimeError("bot.py ichidagi send_book_detail bloki topilmadi.")
+    source = source.replace(old_detail, new_detail, 1)
+
     namespace = {"__name__": "__main__", "__file__": "bot.py"}
     exec(compile(source, "bot.py", "exec"), namespace, namespace)
 
 
 sync_source = Path("sync_wrapper.py").read_text(encoding="utf-8")
+
+# Lazy Telegram photo cache lokal photo_idni o‘zgartirganda uni Telegramdan
+# Supabase Storagega qayta yuklab, ilova muqovasini almashtirib yubormaymiz.
+old_image_guard = '''        now_photo = str(book.get("photo_id") or "").strip()
+        old_photo = str(prev.get("photo_id") or "").strip()
+        if now_photo == old_photo:
+            continue
+'''
+new_image_guard = '''        now_photo = str(book.get("photo_id") or "").strip()
+        old_photo = str(prev.get("photo_id") or "").strip()
+        cache_only = bool(book.pop("_telegram_photo_cache_only", False))
+        if cache_only:
+            changed = True
+            if now_photo != old_photo:
+                continue
+        if now_photo == old_photo:
+            continue
+'''
+if old_image_guard not in sync_source:
+    raise RuntimeError("sync_wrapper image guard topilmadi.")
+sync_source = sync_source.replace(old_image_guard, new_image_guard, 1)
+
+# Ilovada muqova URL o‘zgarsa, oldingi Telegram cache lokalda eskirgan deb
+# belgilanadi. Yangi file_id faqat mijoz shu kitobni ochganda yaratiladi.
+old_row_start = '''    current = dict(current or {})
+    current.update(
+        {
+'''
+new_row_start = '''    current = dict(current or {})
+    new_image_url = str(row.get("image_url") or "")
+    cloud_photo_id = str(row.get("telegram_photo_id") or "")
+    old_image_url = str(current.get("image_url") or "")
+    old_photo_id = str(current.get("photo_id") or "")
+    stale_cached_photo = (
+        bool(old_image_url)
+        and old_image_url != new_image_url
+        and bool(old_photo_id)
+        and cloud_photo_id == old_photo_id
+    )
+    resolved_photo_id = "" if stale_cached_photo else cloud_photo_id
+    source_url = str(current.get("telegram_photo_source_url") or "")
+    if stale_cached_photo:
+        source_url = ""
+    elif resolved_photo_id and new_image_url and not source_url:
+        source_url = new_image_url
+
+    current.update(
+        {
+'''
+if old_row_start not in sync_source:
+    raise RuntimeError("sync_wrapper _row_to_book start topilmadi.")
+sync_source = sync_source.replace(old_row_start, new_row_start, 1)
+
+old_row_images = '''            "image_url": str(row.get("image_url") or ""),
+            "photo_id": str(row.get("telegram_photo_id") or ""),
+'''
+new_row_images = '''            "image_url": new_image_url,
+            "photo_id": resolved_photo_id,
+            "telegram_photo_source_url": source_url,
+'''
+if old_row_images not in sync_source:
+    raise RuntimeError("sync_wrapper image fields topilmadi.")
+sync_source = sync_source.replace(old_row_images, new_row_images, 1)
 
 # Supabase egressni keskin kamaytirish uchun:
 # - birinchi ishga tushishda va har soatda to‘liq reconcile;
