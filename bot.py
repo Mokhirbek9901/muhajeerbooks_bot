@@ -6176,9 +6176,28 @@ def handle_callback(callback):
             return
         try:
             _cloud_set_order_status(order, "accepted")
-        except Exception as e:
-            send(chat_id, f"❌ Buyurtma qabul qilinmadi: {e}")
-            return
+        except Exception as first_error:
+            # Buyurtma yaratish paytida cloudga yozish vaqtincha ishlamagan bo‘lsa,
+            # "Qabul qilish" tugmasi Buyurtma topilmadi xatosida qolib ketmasin.
+            # Avval cloud orderni yaratib, omborni aynan bir marta rezerv qilamiz,
+            # so‘ng accepted holatiga o‘tkazamiz.
+            if not str(order.get("cloud_order_id") or "").strip():
+                try:
+                    cloud_result = cloud_bridge.create_order(order, preserve_stock=False)
+                    if isinstance(cloud_result, dict) and cloud_result.get("id"):
+                        order["cloud_order_id"] = str(cloud_result["id"])
+                        order["source"] = "telegram"
+                        order["stock_reserved"] = True
+                        _apply_cloud_stocks(cloud_result.get("stocks"))
+                        orders[order_id] = order
+                        save_orders()
+                    _cloud_set_order_status(order, "accepted")
+                except Exception as retry_error:
+                    send(chat_id, f"❌ Buyurtma qabul qilinmadi: {retry_error}")
+                    return
+            else:
+                send(chat_id, f"❌ Buyurtma qabul qilinmadi: {first_error}")
+                return
         order["status"] = "accepted"
         save_orders()
         refresh_books()
