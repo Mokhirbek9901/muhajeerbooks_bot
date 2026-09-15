@@ -65,6 +65,14 @@ def set_order_status(order, status):
     )
 
 
+def order_number_map():
+    result = rpc(
+        "bot_order_number_map",
+        {"p_secret": SYNC_SECRET},
+    )
+    return result if isinstance(result, dict) else {}
+
+
 def sales_list(limit=5000):
     result = rpc(
         "bot_sales_list",

@@ -469,6 +469,69 @@ def _cloud_set_order_status(order, status):
     return result
 
 
+_order_display_cache = {}
+_order_display_cache_at = 0.0
+
+
+def refresh_display_order_numbers(force=False):
+    global _order_display_cache, _order_display_cache_at
+    now = time.time()
+    if not force and _order_display_cache and now - _order_display_cache_at < 60:
+        return _order_display_cache
+    try:
+        result = cloud_bridge.order_number_map()
+        if isinstance(result, dict):
+            clean = {}
+            for key, value in result.items():
+                try:
+                    number = int(value)
+                except Exception:
+                    continue
+                if number > 0:
+                    clean[str(key)] = number
+            _order_display_cache = clean
+            _order_display_cache_at = now
+    except Exception as exc:
+        print("Zakas tartib raqamlari sync xatosi:", exc)
+    return _order_display_cache
+
+
+def display_order_number(order):
+    try:
+        stored = int(order.get("display_order_number") or 0)
+    except Exception:
+        stored = 0
+    if stored > 0:
+        return f"{stored:04d}"
+
+    key = str(order.get("order_id") or "").strip()
+    if key:
+        mapping = refresh_display_order_numbers(False)
+        number = mapping.get(key)
+        if number is None:
+            mapping = refresh_display_order_numbers(True)
+            number = mapping.get(key)
+        if number:
+            return f"{int(number):04d}"
+    return key
+
+
+def find_order_by_display_number(text, chat_id=None):
+    needle = str(text or "").strip()
+    if not needle.isdigit():
+        return None
+    normalized = needle.zfill(4)
+    refresh_display_order_numbers(False)
+    for order in orders.values():
+        if chat_id is not None and int(order.get("chat_id", -1)) != int(chat_id):
+            continue
+        if str(order.get("order_id") or "") == needle:
+            return order
+        if display_order_number(order) == normalized:
+            return order
+    return None
+
+
 def normalize_cover(text):
     value = str(text or "").strip().lower()
 
@@ -1000,7 +1063,7 @@ def best_sellers_keyboard(limit=10):
 
 
 def order_receipt_text(order):
-    lines = ["🧾 BUYURTMA CHEKI", "", f"🔢 Buyurtma №{order.get('order_id')}",
+    lines = ["🧾 BUYURTMA CHEKI", "", f"🔢 Buyurtma №{display_order_number(order)}",
              f"👤 {order.get('name', '')}", f"📱 {order.get('phone', '')}",
              f"📍 {order.get('address', '')}", ""]
     total = 0
@@ -2554,7 +2617,7 @@ def user_orders_text(chat_id):
     for o in mine[:20]:
         status = status_names.get(o.get("status"), o.get("status", "noma’lum"))
         lines.append(
-            f"🔢 №{o.get('order_id')} — {status}\n"
+            f"🔢 №{display_order_number(o)} — {status}\n"
             f"💵 ₩{int(o.get('grand_total', 0)):,}"
         )
     return "\n\n".join(lines)
@@ -2607,7 +2670,7 @@ def admin_orders_text(status_filter="all"):
     title = "📦 BARCHA BUYURTMALAR" if status_filter == "all" else f"📦 {ORDER_STATUS_NAMES.get(status_filter, status_filter).upper()}"
     lines = [f"{title} — {len(selected)} ta", ""]
     for o in selected[:30]:
-        lines.append(f"№{o.get('order_id')} | {o.get('name', 'Noma’lum')} | ₩{int(o.get('grand_total', 0)):,} | {ORDER_STATUS_NAMES.get(o.get('status'), o.get('status'))}")
+        lines.append(f"№{display_order_number(o)} | {o.get('name', 'Noma’lum')} | ₩{int(o.get('grand_total', 0)):,} | {ORDER_STATUS_NAMES.get(o.get('status'), o.get('status'))}")
     if not selected:
         lines.append("Bu statusda buyurtma yo‘q.")
     return "\n".join(lines)
@@ -2820,7 +2883,7 @@ def admin_orders_keyboard(status_filter=None):
     selected = [o for o in orders.values() if status_filter == "all" or o.get("status") == status_filter]
     selected.sort(key=lambda x: int(x.get("order_id", 0)), reverse=True)
     for o in selected[:30]:
-        buttons.append([{"text": f"№{o.get('order_id')} — {status_name(o.get('status'))}", "callback_data": f"adminorder_{o.get('order_id')}"}])
+        buttons.append([{"text": f"№{display_order_number(o)} — {status_name(o.get('status'))}", "callback_data": f"adminorder_{o.get('order_id')}"}])
     buttons.append([{"text": "⬅️ Admin panel", "callback_data": "admin"}])
     return {"inline_keyboard": buttons}
 
@@ -3389,7 +3452,7 @@ def finalize_order(chat_id):
             order_grand_total = int(order.get("grand_total", grand_total))
 
             admin_text = (
-                f"🛒 YANGI BUYURTMA №{order_id}\n\n"
+                f"🛒 YANGI BUYURTMA №{display_order_number(order)}\n\n"
                 f"👤 Ism: {order.get('name', '—')}\n"
                 f"📱 Telefon: {order.get('phone', '—')}\n"
                 f"📍 Manzil: {order.get('address', '—')}\n"
@@ -3414,7 +3477,7 @@ def finalize_order(chat_id):
                 api("sendPhoto", {
                     "chat_id": int(ADMIN_ID),
                     "photo": receipt_file_id,
-                    "caption": f"📸 To‘lov cheki · Buyurtma №{order_id}"
+                    "caption": f"📸 To‘lov cheki · Buyurtma №{display_order_number(order)}"
                 })
         except Exception as e:
             print("Adminga buyurtma yuborish xatosi:", e)
@@ -4247,7 +4310,7 @@ def handle_message(message):
                     send(
                         chat_id,
                         f"✅ Instagram savdo saqlandi.\n\n"
-                        f"🔢 №{order['order_id']}\n"
+                        f"🔢 №{display_order_number(order)}\n"
                         f"📚 {sum(int(q) for q in order.get('cart',{}).values())} ta kitob\n"
                         f"💵 Mijozdan jami: ₩{int(order.get('grand_total',0)):,}\n"
                         f"🚚 Pochta: {'mijoz to‘ladi' if fee else 'siz to‘ladingiz'}\n"
@@ -4830,7 +4893,7 @@ def handle_message(message):
 
     if text == "🔢 Buyurtmani tekshirish":
         states[chat_id] = {"action": "lookup_order"}
-        send(chat_id, "🔢 Buyurtma raqamini yozing. Masalan: 1750000000000\n❌ Bekor qilish uchun tugmani bosing.", {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True})
+        send(chat_id, "🔢 Buyurtma raqamini yozing. Masalan: 0001\n❌ Bekor qilish uchun tugmani bosing.", {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True})
         return
 
     # =========================
@@ -5091,12 +5154,12 @@ def handle_message(message):
         if not text.isdigit():
             send(chat_id, "❌ Buyurtma raqami faqat raqamlardan iborat bo‘lsin.")
             return
-        order = orders.get(text)
+        order = find_order_by_display_number(text, chat_id)
         states.pop(chat_id, None)
-        if not order or int(order.get("chat_id", -1)) != int(chat_id):
+        if not order:
             send(chat_id, "❌ Bunday buyurtma topilmadi.", main_menu(chat_id))
             return
-        send(chat_id, f"🧾 BUYURTMA №{text}\n\n{status_name(order.get('status'))}\n💵 Jami: ₩{int(order.get('grand_total',0)):,}", main_menu(chat_id))
+        send(chat_id, f"🧾 BUYURTMA №{display_order_number(order)}\n\n{status_name(order.get('status'))}\n💵 Jami: ₩{int(order.get('grand_total',0)):,}", main_menu(chat_id))
         return
 
     # =========================
@@ -6212,7 +6275,7 @@ def handle_callback(callback):
                 send(chat_id, f"⚠️ KAM QOLDI: {book['name']} — {remaining} ta")
         send(
             chat_id,
-            f"✅ Buyurtma №{order_id} qabul qilindi.\n\n📦 Ombor bot va programmada bir xil yangilandi.",
+            f"✅ Buyurtma №{display_order_number(order)} qabul qilindi.\n\n📦 Ombor bot va programmada bir xil yangilandi.",
             admin_order_status_keyboard(order_id, "accepted")
         )
         customer_chat = int(order.get("chat_id") or 0)
@@ -6244,7 +6307,7 @@ def handle_callback(callback):
             return
         order["status"] = "shipped"
         save_orders()
-        send(chat_id, f"🚚 Buyurtma №{order_id} jo‘natildi.", admin_order_status_keyboard(order_id, "shipped"))
+        send(chat_id, f"🚚 Buyurtma №{display_order_number(order)} jo‘natildi.", admin_order_status_keyboard(order_id, "shipped"))
         customer_chat = int(order.get("chat_id") or 0)
         if customer_chat > 0 and str(order.get("source") or "telegram") != "app":
             send(
@@ -6334,12 +6397,12 @@ def handle_callback(callback):
             return
         order["status"] = "cancelled"
         save_orders()
-        send(chat_id, f"❌ Zakaz №{order_id} bekor qilindi.", admin_menu())
+        send(chat_id, f"❌ Zakaz №{display_order_number(order)} bekor qilindi.", admin_menu())
         customer_chat = int(order.get("chat_id") or 0)
         if customer_chat > 0:
             send(
                 customer_chat,
-                f"❌ Zakaz №{order_id} bekor qilindi.\n\nAgar xatolik bo‘lsa, admin bilan bog‘laning.",
+                f"❌ Zakaz №{display_order_number(order)} bekor qilindi.\n\nAgar xatolik bo‘lsa, admin bilan bog‘laning.",
                 main_menu(customer_chat)
             )
         return
