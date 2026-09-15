@@ -2595,12 +2595,14 @@ ORDER_STATUS_NAMES = {
 }
 
 def admin_order_counts():
-    return {status: sum(1 for o in orders.values() if o.get("status") == status) for status in ORDER_STATUS_NAMES}
+    # Bekor qilingan zakazlar admin Buyurtmalar papkasida umuman ko‘rinmaydi.
+    visible = [o for o in orders.values() if o.get("status") != "cancelled"]
+    return {status: sum(1 for o in visible if o.get("status") == status) for status in ORDER_STATUS_NAMES}
 
 def admin_orders_text(status_filter="all"):
     if not orders:
         return "📦 Hozircha buyurtmalar yo‘q."
-    selected = [o for o in orders.values() if status_filter == "all" or o.get("status") == status_filter]
+    selected = [o for o in orders.values() if o.get("status") != "cancelled" and (status_filter == "all" or o.get("status") == status_filter)]
     selected.sort(key=lambda x: int(x.get("order_id", 0)), reverse=True)
     title = "📦 BARCHA BUYURTMALAR" if status_filter == "all" else f"📦 {ORDER_STATUS_NAMES.get(status_filter, status_filter).upper()}"
     lines = [f"{title} — {len(selected)} ta", ""]
@@ -2813,7 +2815,7 @@ def admin_orders_keyboard(status_filter="all"):
         [{"text": f"🟡 Kutilmoqda ({counts['pending']})", "callback_data": "adminorders_pending"}],
         [{"text": f"📦 Qabul qilingan ({counts['accepted']})", "callback_data": "adminorders_accepted"}],
         [{"text": f"🚚 Jo‘natilgan ({counts['shipped']})", "callback_data": "adminorders_shipped"}],
-        [{"text": f"📦 Hammasi ({len(orders)})", "callback_data": "adminorders_all"}],
+        [{"text": f"📦 Hammasi ({sum(1 for o in orders.values() if o.get('status') != 'cancelled')})", "callback_data": "adminorders_all"}],
     ]
     selected = [o for o in orders.values() if status_filter == "all" or o.get("status") == status_filter]
     selected.sort(key=lambda x: int(x.get("order_id", 0)), reverse=True)
