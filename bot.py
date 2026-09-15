@@ -3314,6 +3314,10 @@ def finalize_order(chat_id):
         "created_at": datetime.now().isoformat(timespec="seconds")
     }
 
+    # Buyurtma yaratilishi bilan qoldiqni darhol band qilamiz.
+    # Admin "Qabul qilish"ni bosishini kutmaydi. Cloud RPC ham ayni paytda
+    # markaziy omborni kamaytiradi; local qoldiq cloud javobi bilan sinxronlanadi.
+    order["stock_reserved"] = True
     orders[order_id] = order
     save_orders()
 
