@@ -2809,7 +2809,7 @@ def admin_report_text(period="all"):
 
     return "\n".join(lines)
 
-def admin_orders_keyboard(status_filter="all"):
+def admin_orders_keyboard(status_filter=None):
     counts = admin_order_counts()
     buttons = [
         [{"text": f"🟡 Kutilmoqda ({counts['pending']})", "callback_data": "adminorders_pending"}],
@@ -3908,7 +3908,8 @@ def handle_message(message):
 
         if text == "📦 Buyurtmalar":
             states.pop(chat_id, None)
-            send(chat_id, admin_orders_text("all"), admin_orders_keyboard("all"))
+            # Papka bosh sahifasida zakazlarning o‘zi chiqmaydi — faqat status papkalari.
+            send(chat_id, "📦 BUYURTMALAR\n\nKerakli papkani tanlang:", admin_orders_keyboard(None))
             return
 
         if text == "👥 Foydalanuvchilar":
@@ -5526,7 +5527,7 @@ def handle_callback(callback):
 
     if data == "admin_orders":
         if is_admin(chat_id):
-            send(chat_id, admin_orders_text("all"), admin_orders_keyboard("all"))
+            send(chat_id, "📦 BUYURTMALAR\n\nKerakli papkani tanlang:", admin_orders_keyboard(None))
         return
 
     if data.startswith("adminorders_"):
