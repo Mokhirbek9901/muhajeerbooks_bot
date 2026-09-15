@@ -466,6 +466,11 @@ def _cloud_set_order_status(order, status):
         if result.get("id"):
             order["cloud_order_id"] = str(result["id"])
         _apply_cloud_stocks(result.get("stocks"))
+    if status == "cancelled":
+        try:
+            refresh_display_order_numbers(force=True)
+        except Exception:
+            pass
     return result
 
 
@@ -476,7 +481,7 @@ _order_display_cache_at = 0.0
 def refresh_display_order_numbers(force=False):
     global _order_display_cache, _order_display_cache_at
     now = time.time()
-    if not force and _order_display_cache and now - _order_display_cache_at < 60:
+    if not force and _order_display_cache and now - _order_display_cache_at < 10:
         return _order_display_cache
     try:
         result = cloud_bridge.order_number_map()
@@ -497,6 +502,8 @@ def refresh_display_order_numbers(force=False):
 
 
 def display_order_number(order):
+    if str(order.get("status") or "").strip() == "cancelled":
+        return ""
     try:
         stored = int(order.get("display_order_number") or 0)
     except Exception:
@@ -2616,8 +2623,10 @@ def user_orders_text(chat_id):
     }
     for o in mine[:20]:
         status = status_names.get(o.get("status"), o.get("status", "noma’lum"))
+        number = display_order_number(o)
+        number_prefix = f"🔢 №{number} — " if number else ""
         lines.append(
-            f"🔢 №{display_order_number(o)} — {status}\n"
+            f"{number_prefix}{status}\n"
             f"💵 ₩{int(o.get('grand_total', 0)):,}"
         )
     return "\n\n".join(lines)
@@ -6397,12 +6406,12 @@ def handle_callback(callback):
             return
         order["status"] = "cancelled"
         save_orders()
-        send(chat_id, f"❌ Zakaz №{display_order_number(order)} bekor qilindi.", admin_menu())
+        send(chat_id, "❌ Zakaz bekor qilindi.", admin_menu())
         customer_chat = int(order.get("chat_id") or 0)
         if customer_chat > 0:
             send(
                 customer_chat,
-                f"❌ Zakaz №{display_order_number(order)} bekor qilindi.\n\nAgar xatolik bo‘lsa, admin bilan bog‘laning.",
+                "❌ Zakaz bekor qilindi.\n\nAgar xatolik bo‘lsa, admin bilan bog‘laning.",
                 main_menu(customer_chat)
             )
         return
