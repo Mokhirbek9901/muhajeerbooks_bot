@@ -1,0 +1,30 @@
+name: Remove Ali test order
+
+on:
+  push:
+    paths:
+      - 'remove_ali_test_order_trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply one-time local order cleanup
+        run: python3 tools/remove_ali_test_order.py
+      - name: Commit bot cleanup
+        run: |
+          git config user.name "Mokhirbek9901"
+          git config user.email "ismoilovmokhirbek@gmail.com"
+          git add bot.py
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Remove Ali Instagram test order locally"
+          git push origin main
