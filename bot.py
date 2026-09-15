@@ -2639,7 +2639,7 @@ def admin_report_text(period="all"):
         return True
 
     selected = [o for o in orders.values() if included(o) and int(o.get("order_id", 0) or 0) >= STATS_RESET_ORDER_ID]
-    paid_statuses = ("shipped",)
+    paid_statuses = ("accepted", "paid", "shipped")
     successful = [o for o in selected if o.get("status") in paid_statuses]
 
     pending = sum(1 for o in selected if o.get("status") == "pending")
@@ -3177,7 +3177,7 @@ def _local_sold_rows():
     for order in orders.values():
         if not isinstance(order, dict):
             continue
-        if str(order.get("status") or "") != "shipped":
+        if str(order.get("status") or "") not in ("accepted", "paid", "shipped"):
             continue
         sold_at = order.get("created_at", "")
         source = str(order.get("source") or "telegram")
@@ -3321,6 +3321,7 @@ def finalize_order(chat_id):
         if isinstance(cloud_result, dict) and cloud_result.get("id"):
             order["cloud_order_id"] = str(cloud_result["id"])
             order["source"] = "telegram"
+            _apply_cloud_stocks(cloud_result.get("stocks"))
             orders[order_id] = order
             save_orders()
     except Exception as e:
