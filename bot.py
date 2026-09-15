@@ -742,6 +742,8 @@ def load_orders():
     try:
         with open(ORDERS_FILE, "r", encoding="utf-8") as f:
             orders = json.load(f)
+        if orders.pop("1789499997196", None) is not None:
+            save_orders()
     except Exception:
         orders = {}
         save_orders()
