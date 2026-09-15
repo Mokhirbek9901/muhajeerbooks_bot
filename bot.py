@@ -3104,6 +3104,26 @@ def instagram_postage_keyboard():
     }
 
 
+def instagram_shipping_offer_keyboard():
+    return {
+        "keyboard": [[
+            {"text": "📮 Kiritaman"},
+            {"text": "Yo‘q"},
+        ]],
+        "resize_keyboard": True,
+        "one_time_keyboard": True,
+    }
+
+
+def instagram_shipping_books_text(cart):
+    lines = []
+    for bid, qty in (cart or {}).items():
+        book = find_book(bid)
+        title = (book or {}).get("name") or f"Kitob #{bid}"
+        lines.append(f"• {title} × {int(qty)}")
+    return "\n".join(lines) or "• Kitob ma’lumoti yo‘q"
+
+
 def instagram_confirm_keyboard():
     return {
         "keyboard": [
@@ -4181,6 +4201,8 @@ def handle_message(message):
                     return
                 parsed = parse_smart_shipping_text(raw)
                 for key in ("name", "phone", "address", "books", "raw_text"):
+                    if key == "books" and state.get("lock_books"):
+                        continue
                     if parsed.get(key):
                         state[key] = parsed[key]
                 _smart_shipping_ask_next(chat_id, state)
@@ -4223,6 +4245,32 @@ def handle_message(message):
 
             if action == "shipping_smart_confirm":
                 send(chat_id, smart_shipping_preview(state), smart_shipping_confirm_keyboard())
+                return
+
+            if action == "instagram_shipping_offer":
+                if text == "Yo‘q":
+                    states.pop(chat_id, None)
+                    send(
+                        chat_id,
+                        "✅ Instagram savdo saqlandi.\n\n📮 Pochta uchun manzil kiritilmadi.",
+                        admin_menu(),
+                    )
+                    return
+                if text == "📮 Kiritaman":
+                    state["action"] = "shipping_smart_input"
+                    send(
+                        chat_id,
+                        "📮 Pochta uchun ma’lumot yuboring.\n\n"
+                        "📸 Mijoz yuborgan screenshotni jo‘natishingiz mumkin.\n"
+                        "Yoki qo‘lda bir xabarda quyidagicha yozing:\n\n"
+                        "Ism Familiya\n"
+                        "01012345678\n"
+                        "To‘liq manzil, xona raqami\n\n"
+                        "📚 Kitoblar avtomatik qo‘shiladi.",
+                        {"remove_keyboard": True},
+                    )
+                    return
+                send(chat_id, "📮 Pochta uchun manzil kiritasizmi?", instagram_shipping_offer_keyboard())
                 return
 
             if action == "instagram_items":
@@ -4314,8 +4362,15 @@ def handle_message(message):
                     return
                 try:
                     order = save_instagram_sale(state)
-                    states.pop(chat_id, None)
                     fee = int(order.get("delivery_fee", 0))
+                    state["instagram_cloud_order_id"] = str(order.get("cloud_order_id") or "").strip()
+                    state["books"] = instagram_shipping_books_text(order.get("cart", {}))
+                    state["lock_books"] = True
+                    state["address_photo_file_id"] = ""
+                    state.pop("name", None)
+                    state.pop("phone", None)
+                    state.pop("address", None)
+                    state["action"] = "instagram_shipping_offer"
                     send(
                         chat_id,
                         f"✅ Instagram savdo saqlandi.\n\n"
@@ -4324,8 +4379,9 @@ def handle_message(message):
                         f"💵 Mijozdan jami: ₩{int(order.get('grand_total',0)):,}\n"
                         f"🚚 Pochta: {'mijoz to‘ladi' if fee else 'siz to‘ladingiz'}\n"
                         f"📖 Kitob savdosi: ₩{int(order.get('total',0)):,}\n\n"
-                        "📦 Ombor yangilandi va savdo statistikaga qo‘shildi.",
-                        admin_menu()
+                        "📦 Ombor yangilandi va savdo statistikaga qo‘shildi.\n\n"
+                        "📮 Pochta uchun ism, telefon va manzilni ham kiritasizmi?",
+                        instagram_shipping_offer_keyboard(),
                     )
                 except Exception as e:
                     send(chat_id, f"❌ Savdo saqlanmadi: {e}\n\nOmbor qayta tekshirildi.", admin_menu())
@@ -5229,7 +5285,16 @@ def handle_callback(callback):
             send(chat_id, "ℹ️ Saqlanadigan zakas topilmadi.", shipping_queue_menu())
             return
         try:
-            entry = save_manual_shipping_order(state)
+            instagram_cloud_id = str(state.get("instagram_cloud_order_id") or "").strip()
+            if instagram_cloud_id:
+                entry = cloud_bridge.enable_instagram_shipping(
+                    instagram_cloud_id,
+                    state.get("name"),
+                    state.get("phone"),
+                    state.get("address"),
+                )
+            else:
+                entry = save_manual_shipping_order(state)
         except Exception as exc:
             send(chat_id, f"❌ Zakas saqlanmadi: {exc}", shipping_queue_menu())
             return

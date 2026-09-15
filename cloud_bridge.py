@@ -149,6 +149,19 @@ def mark_instagram_order(cloud_id):
     )
 
 
+def enable_instagram_shipping(cloud_id, name, phone, address):
+    return rpc(
+        "bot_instagram_shipping_enable",
+        {
+            "p_secret": SYNC_SECRET,
+            "p_cloud_id": str(cloud_id),
+            "p_name": str(name or "").strip(),
+            "p_phone": str(phone or "").strip(),
+            "p_address": str(address or "").strip(),
+        },
+    )
+
+
 def delete_book(book):
     cloud_id = str(book.get("cloud_id") or "").strip() or None
     try:
