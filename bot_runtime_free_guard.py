@@ -4,6 +4,7 @@ from pathlib import Path
 # Keep the existing bot/runtime logic intact and only reduce expensive full
 # Supabase reconciliations. Delta sync remains unchanged, so new/changed
 # books and orders continue syncing on the normal interval.
+# Full reconciliation remains as a safety net every 6 hours.
 source = Path("bot_runtime_launcher.py").read_text(encoding="utf-8")
 
 old = "full_reconcile_every = 60 * 60"
