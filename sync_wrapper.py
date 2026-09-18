@@ -30,9 +30,9 @@ CATALOG_RESET_MARKER = os.path.join(DATA_DIR, "catalog_full_reset_20260908_v1.do
 
 
 def _rpc(name, payload):
-    return post_json(
-        f"{SUPABASE_URL}/rest/v1/rpc/{name}",
-        payload,
+    response = post_json(
+        f"{SUPABASE_URL}/functions/v1/bot-rpc",
+        {"name": name, "params": payload},
         {
             "apikey": SUPABASE_ANON_KEY,
             "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
@@ -40,6 +40,10 @@ def _rpc(name, payload):
         },
         timeout=35,
     )
+    if not isinstance(response, dict) or response.get("ok") is not True:
+        message = response.get("error") if isinstance(response, dict) else "Bot RPC proxy xatosi"
+        raise RuntimeError(str(message or "Bot RPC proxy xatosi"))
+    return response.get("data")
 
 
 def _read_json(path, default):
