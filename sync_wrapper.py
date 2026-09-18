@@ -392,6 +392,7 @@ def _row_to_book(row, current, tid):
             if row.get("is_active", True)
             else 0,
             "discount_percent": discount,
+            "discount_ends_at": str(row.get("discount_ends_at") or ""),
             "image_url": str(row.get("image_url") or ""),
             "photo_id": str(row.get("telegram_photo_id") or ""),
             "cover": str(row.get("cover") or "Ko‘rsatilmagan"),
