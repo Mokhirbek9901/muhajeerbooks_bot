@@ -936,6 +936,13 @@ def user_has_rated(chat_id, order_id, book_id):
 def effective_price(book):
     price = int(book.get("price", 0) or 0)
     old = int(book.get("old_price", 0) or 0)
+    ends_at = str(book.get("discount_ends_at") or "").strip()
+    if ends_at:
+        try:
+            if _local_datetime(ends_at) <= datetime.now():
+                return old if old > price > 0 else price
+        except Exception:
+            pass
     if old > price > 0:
         return price
     return price
