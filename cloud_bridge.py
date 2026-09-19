@@ -15,16 +15,20 @@ def rpc(name, payload):
     if not configured():
         raise RuntimeError("Supabase sync sozlanmagan")
     try:
-        return post_json(
-            f"{SUPABASE_URL}/rest/v1/rpc/{name}",
-            payload,
+        response = post_json(
+            f"{SUPABASE_URL}/functions/v1/bot-rpc",
+            {"name": name, "params": payload},
             {
                 "apikey": SUPABASE_ANON_KEY,
                 "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
                 "Content-Type": "application/json",
             },
-            timeout=30,
+            timeout=35,
         )
+        if not isinstance(response, dict) or response.get("ok") is not True:
+            message = response.get("error") if isinstance(response, dict) else "Bot RPC proxy xatosi"
+            raise RuntimeError(str(message or "Bot RPC proxy xatosi"))
+        return response.get("data")
     except urllib.error.HTTPError as exc:
         try:
             detail = exc.read().decode("utf-8")
