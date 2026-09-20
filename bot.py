@@ -1879,7 +1879,7 @@ def admin_menu():
             [{"text": "📅 Bugungi hisobot"}],
             [{"text": "💰 Moliya"}, {"text": "➕ Xarajat"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
-            [{"text": "🧪 Random xabarni sinash"}],
+            [{"text": "🧪 Random xabarni sinash"}, {"text": "🧾 Test chek"}],
             [{"text": "💾 Backup"}, {"text": "📥 Backup tiklash"}],
             [discount_button],
             [{"text": "🏠 Asosiy menyu"}],
@@ -3689,6 +3689,32 @@ def handle_message(message):
 
     username = user.get("username", "")
     register_user(chat_id, user)
+
+    # Admin o'z chatidan yuborsa, test chek aynan shu chat_id ga qaytadi.
+    if text in ("/testchek", "🧾 Test chek") and is_admin(chat_id):
+        receipt = (
+            "🧾 MUHAJEER BOOKS\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "        ELEKTRON CHEK\n"
+            "━━━━━━━━━━━━━━━━\n\n"
+            "Buyurtma: #TEST\n"
+            "Mijoz: Test xaridor\n\n"
+            "📚 Tarixiy siyosiy SET\n"
+            "1 × ₩22,000 ........ ₩22,000\n"
+            "   Set narxiga pochta kiritilgan\n\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "Kitob / set:          ₩22,000\n"
+            "Yetkazib berish:       BEPUL\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "JAMI:                 ₩22,000\n"
+            "━━━━━━━━━━━━━━━━\n\n"
+            "✅ To‘lov qabul qilindi\n\n"
+            "MUHAJEER BOOKS 📚\n"
+            "Koreya bo‘ylab o‘zbek kitoblari\n\n"
+            "🧪 Bu test cheki — haqiqiy buyurtma emas."
+        )
+        send(chat_id, receipt)
+        return
 
     # =========================
     # ADMIN BACKUP RESTORE
@@ -6533,13 +6559,22 @@ def _send_requested_test_receipt():
     )
 
     try:
-        send(int(ADMIN_ID), text)
+        result = send(int(ADMIN_ID), text)
+        sent = (result or {}).get("result") or {}
+        sent_chat = sent.get("chat") or {}
+        print(
+            "Test Muhajeer Books cheki yuborildi:",
+            "ok=", bool((result or {}).get("ok")),
+            "chat_id=", sent_chat.get("id"),
+            "chat_type=", sent_chat.get("type"),
+            "username=", sent_chat.get("username"),
+            "message_id=", sent.get("message_id"),
+        )
         try:
             with open(marker, "w", encoding="utf-8") as fh:
                 fh.write(nonce)
         except Exception as marker_error:
             print("Test chek markerini yozib bo'lmadi:", marker_error)
-        print("Test Muhajeer Books cheki adminga yuborildi.")
     except Exception as exc:
         print("Test chekni yuborib bo'lmadi:", exc)
 
