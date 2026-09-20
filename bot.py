@@ -1841,7 +1841,6 @@ def main_menu(chat_id):
         [{"text": "🔎 Qidirish"}, {"text": "❤️ Sevimlilar"}],
         [{"text": "🔥 Tavsiya etilgan"}, {"text": "🆕 Yangi kitoblar"}],
         [{"text": "🏆 Eng ko‘p sotilgan"}],
-        [{"text": "🎯 Menga kitob tanla"}],
         [{"text": "🛒 Savatcha"}, {"text": "📦 Zakaz berish"}],
         [{"text": "📜 Mening buyurtmalarim"}, {"text": "📞 Bog‘lanish"}],
         [{"text": "🔢 Buyurtmani tekshirish"}],
