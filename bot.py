@@ -6495,6 +6495,55 @@ def handle_callback(callback):
 # MAIN
 # =========================
 
+def _send_requested_test_receipt():
+    """Railway env orqali adminning o'ziga bir martalik test chek yuboradi."""
+    nonce = os.environ.get("TEST_RECEIPT_NONCE", "").strip()
+    if not nonce or not ADMIN_ID:
+        return
+
+    marker = os.path.join(DATA_DIR, "test_receipt_nonce.txt")
+    try:
+        if os.path.exists(marker):
+            with open(marker, "r", encoding="utf-8") as fh:
+                if fh.read().strip() == nonce:
+                    return
+    except Exception:
+        pass
+
+    text = (
+        "🧾 MUHAJEER BOOKS\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "        ELEKTRON CHEK\n"
+        "━━━━━━━━━━━━━━━━\n\n"
+        "Buyurtma: #TEST\n"
+        "Mijoz: Test xaridor\n\n"
+        "📚 Tarixiy siyosiy SET\n"
+        "1 × ₩22,000 ........ ₩22,000\n"
+        "   Set narxiga pochta kiritilgan\n\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "Kitob / set:          ₩22,000\n"
+        "Yetkazib berish:       BEPUL\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "JAMI:                 ₩22,000\n"
+        "━━━━━━━━━━━━━━━━\n\n"
+        "✅ To‘lov qabul qilindi\n\n"
+        "MUHAJEER BOOKS 📚\n"
+        "Koreya bo‘ylab o‘zbek kitoblari\n\n"
+        "🧪 Bu test cheki — haqiqiy buyurtma emas."
+    )
+
+    try:
+        send(int(ADMIN_ID), text)
+        try:
+            with open(marker, "w", encoding="utf-8") as fh:
+                fh.write(nonce)
+        except Exception as marker_error:
+            print("Test chek markerini yozib bo'lmadi:", marker_error)
+        print("Test Muhajeer Books cheki adminga yuborildi.")
+    except Exception as exc:
+        print("Test chekni yuborib bo'lmadi:", exc)
+
+
 def main():
     if not TOKEN:
         raise Exception("BOT_TOKEN sozlanmagan!")
@@ -6505,6 +6554,7 @@ def main():
     load_favorites()
     load_ratings()
     load_restock()
+    _send_requested_test_receipt()
 
     offset = None
 
