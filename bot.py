@@ -8,6 +8,8 @@ import random
 import io
 import re
 import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import cloud_bridge
 
 from datetime import datetime, timedelta
@@ -6517,6 +6519,90 @@ def handle_callback(callback):
 
 
 
+
+# =========================
+# TEZKOR APP BUYURTMA XABARI
+# =========================
+
+ORDER_NOTIFY_SECRET = os.environ.get("ORDER_NOTIFY_SECRET", "").strip()
+ORDER_NOTIFY_PORT = int(os.environ.get("PORT", "8080") or 8080)
+
+class _OrderNotifyHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        return
+
+    def do_GET(self):
+        if self.path == "/health":
+            body = b'{"ok":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_POST(self):
+        if self.path != "/notify-order":
+            self.send_response(404)
+            self.end_headers()
+            return
+        supplied = str(self.headers.get("X-Muhajeer-Order-Secret") or "").strip()
+        if not ORDER_NOTIFY_SECRET or supplied != ORDER_NOTIFY_SECRET:
+            self.send_response(401)
+            self.end_headers()
+            return
+        try:
+            length = min(int(self.headers.get("Content-Length") or 0), 65536)
+            payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+            if str(payload.get("source") or "") != "app":
+                self.send_response(204)
+                self.end_headers()
+                return
+            order_no = int(payload.get("order_number") or 0)
+            name = str(payload.get("customer_name") or "—").strip()
+            phone = str(payload.get("phone") or "—").strip()
+            address = str(payload.get("address") or "—").strip()
+            total = int(payload.get("total") or 0)
+            items = payload.get("items") if isinstance(payload.get("items"), list) else []
+            lines = []
+            for item in items[:30]:
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("title") or item.get("name") or "Kitob").strip()
+                qty = max(1, int(item.get("quantity") or item.get("qty") or 1))
+                lines.append(f"• {title} × {qty}")
+            label = f"#{order_no:04d}" if order_no > 0 else "Yangi"
+            text = (
+                f"🚨 YANGI ILOVA BUYURTMASI {label}\n\n"
+                f"👤 {name}\n📱 {phone}\n📍 {address}\n\n"
+                f"📚 " + ("\n".join(lines) if lines else "Kitob ma’lumoti yo‘q") +
+                f"\n\n💰 Jami: ₩{total:,}\n\n"
+                "⚡ Ilovadan yangi zakas tushdi."
+            )
+            if ADMIN_ID:
+                send(int(ADMIN_ID), text)
+            self.send_response(200)
+            body = b'{"ok":true}'
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as exc:
+            print("Tezkor zakas xabari xatosi:", exc)
+            self.send_response(500)
+            self.end_headers()
+
+def _start_order_notify_server():
+    if not ORDER_NOTIFY_SECRET:
+        print("ORDER_NOTIFY_SECRET sozlanmagan; tezkor app zakas webhook o‘chiq.")
+        return
+    server = ThreadingHTTPServer(("0.0.0.0", ORDER_NOTIFY_PORT), _OrderNotifyHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f"Tezkor zakas webhook port {ORDER_NOTIFY_PORT} da tayyor.")
+
+
 # =========================
 # MAIN
 # =========================
@@ -6590,6 +6676,7 @@ def main():
     load_ratings()
     load_restock()
     _send_requested_test_receipt()
+    _start_order_notify_server()
 
     offset = None
 
