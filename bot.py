@@ -2921,6 +2921,7 @@ def admin_order_status_keyboard(order_id, status):
     buttons=[]
     if status == "pending":
         buttons.append([{ "text":"✅ Buyurtmani qabul qilish", "callback_data":f"accept_{order_id}" }])
+        buttons.append([{ "text":"✏️ Mijozga tahrirlash so‘rovi", "callback_data":f"editrequest_{order_id}" }])
         buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
     elif status in ("accepted", "paid"):
         buttons.append([{ "text":"🚚 Jo‘natildi", "callback_data":f"ship_{order_id}" }])
@@ -3759,6 +3760,49 @@ def handle_message(message):
             return
 
     state = states.get(chat_id)
+
+    # =========================
+    # ADMIN: MIJOZGA TAHRIRLASH SO‘ROVI
+    # =========================
+    if state and is_admin(chat_id) and state.get("action") == "order_edit_request":
+        order_id = str(state.get("order_id") or "")
+        order = orders.get(order_id)
+        if text == "❌ Bekor qilish":
+            states.pop(chat_id, None)
+            send(chat_id, "Tahrirlash so‘rovi bekor qilindi.", admin_order_status_keyboard(order_id, order.get("status")) if order else admin_menu())
+            return
+        if not order:
+            states.pop(chat_id, None)
+            send(chat_id, "❌ Buyurtma topilmadi.", admin_menu())
+            return
+        note = text.strip()
+        if len(note) < 2:
+            send(chat_id, "Kamchilikni yozing. Masalan: Manzilni to‘liq yubormagansiz.")
+            return
+        customer_chat = int(order.get("chat_id") or 0)
+        if customer_chat <= 0 or str(order.get("source") or "telegram") != "telegram":
+            states.pop(chat_id, None)
+            send(chat_id, "❌ Bu buyurtmaning Telegram mijoz chatini topib bo‘lmadi.", admin_order_status_keyboard(order_id, order.get("status")))
+            return
+        try:
+            send(
+                customer_chat,
+                "✏️ BUYURTMANI TAHRIRLASH KERAK\n\n"
+                f"Buyurtma №{display_order_number(order)} bo‘yicha admin xabari:\n"
+                f"⚠️ {note}\n\n"
+                "Iltimos, to‘g‘rilangan ma’lumotni shu chatga yuboring yoki buyurtmani qaytadan rasmiylashtiring.",
+                main_menu(customer_chat)
+            )
+        except Exception as exc:
+            send(chat_id, f"❌ Mijozga xabar yuborilmadi: {exc}")
+            return
+        states.pop(chat_id, None)
+        send(
+            chat_id,
+            f"✅ Tahrirlash so‘rovi mijozga yuborildi.\n\n📝 {note}",
+            admin_order_status_keyboard(order_id, order.get("status"))
+        )
+        return
 
     # =========================
     # ADMIN: MOLIYA XARAJATI
@@ -6330,6 +6374,34 @@ def handle_callback(callback):
             return
         kb = admin_order_status_keyboard(order["order_id"], order.get("status"))
         send(chat_id, admin_order_detail(order), kb or admin_menu())
+        return
+
+    # =========================
+    # ADMIN: REQUEST CUSTOMER EDIT
+    # =========================
+
+    if data.startswith("editrequest_"):
+        if not is_admin(chat_id):
+            return
+        order_id = data.split("_", 1)[1]
+        order = orders.get(order_id)
+        if not order:
+            send(chat_id, "❌ Zakaz topilmadi.")
+            return
+        if str(order.get("source") or "telegram") != "telegram":
+            send(chat_id, "⚠️ Tahrirlash so‘rovi faqat Telegram bot mijoziga yuboriladi.", admin_order_status_keyboard(order_id, order.get("status")))
+            return
+        customer_chat = int(order.get("chat_id") or 0)
+        if customer_chat <= 0:
+            send(chat_id, "❌ Mijoz Telegram chat ID topilmadi.", admin_order_status_keyboard(order_id, order.get("status")))
+            return
+        states[chat_id] = {"action": "order_edit_request", "order_id": order_id}
+        send(
+            chat_id,
+            f"✏️ Buyurtma №{display_order_number(order)} uchun mijozga yuboriladigan kamchilikni yozing.\n\n"
+            "Masalan: Manzilni to‘liq yubormagansiz, iltimos xona raqami bilan qayta yuboring.",
+            {"keyboard": [[{"text": "❌ Bekor qilish"}]], "resize_keyboard": True}
+        )
         return
 
     # =========================
