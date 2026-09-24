@@ -2927,7 +2927,9 @@ def admin_order_status_keyboard(order_id, status):
         buttons.append([{ "text":"🚚 Jo‘natildi", "callback_data":f"ship_{order_id}" }])
         if status == "accepted":
             buttons.append([{ "text":"❌ Bekor qilish", "callback_data":f"cancelorder_{order_id}" }])
-    # Jo‘natildi — yakuniy bosqich. Yetkazildi tugmasi endi yo‘q.
+    # Admin istalgan eski/test buyurtmani ro‘yxatdan o‘zi tozalashi mumkin.
+    # Bu tugma ombor/statistika qayta hisobini ishga tushirmaydi.
+    buttons.append([{ "text":"🗑 Buyurtmani o‘chirish", "callback_data":f"deleteorder_{order_id}" }])
     buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
     return {"inline_keyboard":buttons}
 
@@ -6374,6 +6376,46 @@ def handle_callback(callback):
             return
         kb = admin_order_status_keyboard(order["order_id"], order.get("status"))
         send(chat_id, admin_order_detail(order), kb or admin_menu())
+        return
+
+    # =========================
+    # ADMIN: DELETE ORDER FROM BOT LIST
+    # =========================
+
+    if data.startswith("deleteorder_confirm_"):
+        if not is_admin(chat_id):
+            return
+        order_id = data.split("deleteorder_confirm_", 1)[1]
+        order = orders.get(order_id)
+        if not order:
+            send(chat_id, "ℹ️ Buyurtma allaqachon o‘chirilgan.", admin_orders_keyboard("all"))
+            return
+        number = display_order_number(order)
+        name = order.get("name", "Noma’lum")
+        # Faqat botning orders ro‘yxatidan olib tashlaymiz.
+        # Ombor, moliya va statistika bo‘yicha alohida qaytarish/amallar bajarilmaydi.
+        orders.pop(order_id, None)
+        save_orders()
+        send(chat_id, f"🗑 №{number} | {name} — buyurtmalar ro‘yxatidan o‘chirildi.", admin_orders_keyboard("all"))
+        return
+
+    if data.startswith("deleteorder_"):
+        if not is_admin(chat_id):
+            return
+        order_id = data.split("deleteorder_", 1)[1]
+        order = orders.get(order_id)
+        if not order:
+            send(chat_id, "❌ Buyurtma topilmadi.", admin_orders_keyboard("all"))
+            return
+        send(
+            chat_id,
+            f"⚠️ №{display_order_number(order)} | {order.get('name','Noma’lum')} buyurtmasini ro‘yxatdan o‘chirasizmi?\n\n"
+            "Bu faqat botdagi Buyurtmalar ro‘yxatidan olib tashlaydi. Ombor va statistika qayta o‘zgarmaydi.",
+            {"inline_keyboard": [
+                [{"text":"🗑 Ha, o‘chirish", "callback_data":f"deleteorder_confirm_{order_id}"}],
+                [{"text":"⬅️ Ortga", "callback_data":f"adminorder_{order_id}"}],
+            ]}
+        )
         return
 
     # =========================
