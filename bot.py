@@ -2915,10 +2915,16 @@ def admin_order_detail(order):
 
 
 def admin_order_status_keyboard(order_id, status):
-    order = orders.get(str(order_id)) or {}
-    if str(order.get("source") or "telegram") == "app":
-        return []
+    order = orders.get(str(order_id)) or next(
+        (o for o in orders.values() if str(o.get("order_id")) == str(order_id)), {}
+    )
     buttons=[]
+    if str(order.get("source") or "telegram") == "app":
+        # Ilovadan kelgan zakasning holatini botdan boshqarmaymiz,
+        # lekin admin eski/test yozuvni bot ro‘yxatidan tozalay oladi.
+        buttons.append([{ "text":"🗑 Buyurtmani o‘chirish", "callback_data":f"deleteorder_{order_id}" }])
+        buttons.append([{ "text":"⬅️ Buyurtmalar", "callback_data":"admin_orders" }])
+        return {"inline_keyboard": buttons}
     if status == "pending":
         buttons.append([{ "text":"✅ Buyurtmani qabul qilish", "callback_data":f"accept_{order_id}" }])
         buttons.append([{ "text":"✏️ Mijozga tahrirlash so‘rovi", "callback_data":f"editrequest_{order_id}" }])
@@ -6386,7 +6392,11 @@ def handle_callback(callback):
         if not is_admin(chat_id):
             return
         order_id = data.split("deleteorder_confirm_", 1)[1]
-        order = orders.get(order_id)
+        order_key = order_id if order_id in orders else next(
+            (k for k, o in orders.items() if str(o.get("order_id")) == str(order_id)),
+            None
+        )
+        order = orders.get(order_key) if order_key is not None else None
         if not order:
             send(chat_id, "ℹ️ Buyurtma allaqachon o‘chirilgan.", admin_orders_keyboard("all"))
             return
@@ -6394,7 +6404,7 @@ def handle_callback(callback):
         name = order.get("name", "Noma’lum")
         # Faqat botning orders ro‘yxatidan olib tashlaymiz.
         # Ombor, moliya va statistika bo‘yicha alohida qaytarish/amallar bajarilmaydi.
-        orders.pop(order_id, None)
+        orders.pop(order_key, None)
         save_orders()
         send(chat_id, f"🗑 №{number} | {name} — buyurtmalar ro‘yxatidan o‘chirildi.", admin_orders_keyboard("all"))
         return
@@ -6403,7 +6413,10 @@ def handle_callback(callback):
         if not is_admin(chat_id):
             return
         order_id = data.split("deleteorder_", 1)[1]
-        order = orders.get(order_id)
+        order = orders.get(order_id) or next(
+            (o for o in orders.values() if str(o.get("order_id")) == str(order_id)),
+            None
+        )
         if not order:
             send(chat_id, "❌ Buyurtma topilmadi.", admin_orders_keyboard("all"))
             return
