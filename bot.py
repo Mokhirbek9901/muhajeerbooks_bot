@@ -511,7 +511,7 @@ def display_order_number(order):
     except Exception:
         stored = 0
     if stored > 0:
-        return f"{stored:04d}"
+        return str(stored)
 
     key = str(order.get("order_id") or "").strip()
     if key:
@@ -521,7 +521,7 @@ def display_order_number(order):
             mapping = refresh_display_order_numbers(True)
             number = mapping.get(key)
         if number:
-            return f"{int(number):04d}"
+            return str(int(number))
     return key
 
 
@@ -529,7 +529,7 @@ def find_order_by_display_number(text, chat_id=None):
     needle = str(text or "").strip()
     if not needle.isdigit():
         return None
-    normalized = needle.zfill(4)
+    normalized = str(int(needle))
     refresh_display_order_numbers(False)
     for order in orders.values():
         if chat_id is not None and int(order.get("chat_id", -1)) != int(chat_id):
@@ -6700,7 +6700,7 @@ class _OrderNotifyHandler(BaseHTTPRequestHandler):
                 title = str(item.get("title") or item.get("name") or "Kitob").strip()
                 qty = max(1, int(item.get("quantity") or item.get("qty") or 1))
                 lines.append(f"• {title} × {qty}")
-            label = f"#{order_no:04d}" if order_no > 0 else "Yangi"
+            label = f"#{order_no}" if order_no > 0 else "Yangi"
             text = (
                 f"🚨 YANGI ILOVA BUYURTMASI {label}\n\n"
                 f"👤 {name}\n📱 {phone}\n📍 {address}\n\n"
