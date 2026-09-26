@@ -3242,7 +3242,9 @@ def save_instagram_sale(state):
         "delivery_fee": int(delivery_fee),
         "grand_total": int(grand_total),
         "discount": 0,
-        "status": "shipped",
+        # Instagram savdosi ilovada avval "Qabul qilindi" bo'lib turadi.
+        # Admin ilovadan "Jo‘natildi"ni bosgandagina yuborilgan holatiga o'tadi.
+        "status": "accepted",
         "payment_declared": True,
         "receipt_file_id": "",
         "source": "instagram",
