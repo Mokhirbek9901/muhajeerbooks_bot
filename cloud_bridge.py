@@ -73,7 +73,7 @@ def order_status_changes():
     """Ilova/admin panelida o'zgargan Telegram buyurtma holatlarini oladi."""
     result = rpc(
         "bot_order_status_changes",
-        {"p_secret": os.environ.get("ADMIN_SECRET", "")},
+        {"p_secret": SYNC_SECRET},
     )
     return result if isinstance(result, list) else []
 
