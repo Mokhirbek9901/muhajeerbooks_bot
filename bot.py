@@ -480,6 +480,63 @@ _order_display_cache = {}
 _order_display_cache_at = 0.0
 
 
+_app_status_sync_at = 0.0
+
+
+def sync_app_order_status_notifications(force=False):
+    """Ilovadan boshqarilgan Telegram zakas holatini botga olib, mijozga xabar beradi."""
+    global _app_status_sync_at
+    now = time.time()
+    if not force and now - _app_status_sync_at < 8:
+        return
+    _app_status_sync_at = now
+    try:
+        rows = cloud_bridge.order_status_changes()
+    except Exception as exc:
+        print("Ilova zakas status sync xatosi:", exc)
+        return
+
+    local_by_id = {str(o.get("order_id") or k): o for k, o in orders.items()}
+    changed = False
+    for row in rows:
+        order_id = str(row.get("order_id") or "").strip()
+        order = local_by_id.get(order_id)
+        if not order:
+            continue
+        cloud_status = str(row.get("status") or "").strip()
+        local_status = str(order.get("status") or "pending").strip()
+        bot_status = "shipped" if cloud_status == "shipping" else cloud_status
+        if bot_status not in ("accepted", "paid", "shipped", "cancelled") or bot_status == local_status:
+            continue
+
+        # Ilovadan qabul/yuborildi qilingan holat botdagi local nusxaga ham o'tadi.
+        order["status"] = bot_status
+        changed = True
+        chat_id = int(order.get("chat_id") or row.get("chat_id") or 0)
+        if chat_id <= 0:
+            continue
+        try:
+            if bot_status == "accepted":
+                send(chat_id, "📦 Buyurtmangiz qabul qilindi.", main_menu(chat_id))
+            elif bot_status == "shipped":
+                name = str(order.get("name") or "").strip() or "—"
+                phone = str(order.get("phone") or "").strip() or "—"
+                address = str(order.get("address") or "").strip() or "—"
+                send(
+                    chat_id,
+                    "🚚 Buyurtmangiz yuborildi.\\n\\n"
+                    f"👤 Ism: {name}\\n"
+                    f"📞 Telefon: {phone}\\n"
+                    f"📍 Manzil: {address}\\n\\n"
+                    "Muhajeer Books 📚",
+                    main_menu(chat_id),
+                )
+        except Exception as exc:
+            print("Mijozga status xabari yuborish xatosi:", exc)
+    if changed:
+        save_orders()
+
+
 def refresh_display_order_numbers(force=False):
     global _order_display_cache, _order_display_cache_at
     now = time.time()
@@ -6827,6 +6884,7 @@ def main():
                 elif "callback_query" in update:
                     handle_callback(update["callback_query"])
 
+            sync_app_order_status_notifications()
             check_inactive_users()
 
         except Exception as e:
