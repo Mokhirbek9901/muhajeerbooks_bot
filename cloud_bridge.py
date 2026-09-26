@@ -69,6 +69,15 @@ def set_order_status(order, status):
     )
 
 
+def order_status_changes():
+    """Ilova/admin panelida o'zgargan Telegram buyurtma holatlarini oladi."""
+    result = rpc(
+        "bot_order_status_changes",
+        {"p_secret": SYNC_SECRET},
+    )
+    return result if isinstance(result, list) else []
+
+
 def order_number_map():
     result = rpc(
         "bot_order_number_map",
