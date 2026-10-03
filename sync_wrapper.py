@@ -22,8 +22,12 @@ ADMIN_ID = os.environ.get("ADMIN_ID", "").strip()
 DATA_DIR = "/data" if os.path.isdir("/data") else "."
 BOOKS_FILE = os.path.join(DATA_DIR, "books.json")
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
+FAVORITES_FILE = os.path.join(DATA_DIR, "favorites.json")
 RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
 RESTOCK_FILE = os.path.join(DATA_DIR, "restock.json")
+EXPENSES_FILE = os.path.join(DATA_DIR, "expenses.json")
+SHIPPING_QUEUE_FILE = os.path.join(DATA_DIR, "shipping_queue.json")
 ORDER_RESET_MARKER = os.path.join(DATA_DIR, "order_history_reset_20260908_v2.done")
 SYNC_INTERVAL = 60
 CATALOG_RESET_MARKER = os.path.join(DATA_DIR, "catalog_full_reset_20260908_v1.done")
@@ -62,6 +66,26 @@ def _write_json(path, data):
         os.fsync(f.fileno())
     os.replace(tmp, path)
 
+
+
+def _push_state_snapshot():
+    """Railway /data holatini Supabase'da private migration backup sifatida saqlaydi."""
+    payload = {
+        "snapshot_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "books": _read_json(BOOKS_FILE, []),
+        "orders": _read_json(ORDERS_FILE, {}),
+        "users": _read_json(USERS_FILE, {}),
+        "favorites": _read_json(FAVORITES_FILE, {}),
+        "ratings": _read_json(RATINGS_FILE, {}),
+        "restock": _read_json(RESTOCK_FILE, {}),
+        "expenses": _read_json(EXPENSES_FILE, {}),
+        "shipping_queue": _read_json(SHIPPING_QUEUE_FILE, {}),
+    }
+    return _rpc(
+        "bot_state_snapshot_upsert",
+        {"p_secret": SYNC_SECRET, "p_payload": payload},
+    )
 
 
 def _telegram_send_text(chat_id, text):
