@@ -361,6 +361,8 @@ def sync_loop():
     tomb_cursor = "1970-01-01T00:00:00+00:00"
     last_full_reconcile = 0.0
     full_reconcile_every = 60 * 60
+    last_snapshot = 0.0
+    snapshot_every = 60 * 60
 
     while True:
         try:
@@ -539,6 +541,20 @@ def sync_loop():
             book_cursor = cycle_cursor
             order_cursor = cycle_cursor
             tomb_cursor = cycle_cursor
+
+            if now_ts - last_snapshot >= snapshot_every:
+                try:
+                    snapshot_result = _push_state_snapshot()
+                    if isinstance(snapshot_result, dict) and snapshot_result.get("ok"):
+                        print(
+                            "Railway migration snapshot saqlandi:",
+                            snapshot_result.get("bytes", 0),
+                            "bytes",
+                        )
+                    last_snapshot = now_ts
+                except Exception as snapshot_exc:
+                    print("Railway migration snapshot xatosi:", snapshot_exc)
+
             if full_reconcile:
                 last_full_reconcile = time.time()
             initialized = True
