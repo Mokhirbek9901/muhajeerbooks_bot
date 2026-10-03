@@ -1,0 +1,23 @@
+name: Bot syntax check
+
+on:
+  pull_request:
+    paths:
+      - "sync_wrapper.py"
+      - "bot_runtime_launcher.py"
+      - "bot_runtime_free_guard.py"
+      - ".github/workflows/bot_syntax_check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile runtime files
+        run: python -m py_compile sync_wrapper.py bot_runtime_launcher.py bot_runtime_free_guard.py
