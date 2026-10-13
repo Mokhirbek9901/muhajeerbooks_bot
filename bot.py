@@ -3281,10 +3281,12 @@ def save_instagram_sale(state):
             "unit_cost": int(book.get("cost_price", 0) or 0),
         })
 
-    order_id = str(int(time.time() * 1000))
-    while order_id in orders or int(order_id) < STATS_RESET_ORDER_ID:
+    order_id = str(state.get("instant_order_id") or int(time.time() * 1000))
+    while (order_id in orders or int(order_id) < STATS_RESET_ORDER_ID):
         time.sleep(0.001)
         order_id = str(int(time.time() * 1000))
+    # Keep the same id for retry if the network reply is lost after commit.
+    state["instant_order_id"] = order_id
 
     order = {
         "order_id": order_id,
@@ -3310,31 +3312,28 @@ def save_instagram_sale(state):
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
 
-    # Faqat HAMMA tekshiruvdan o'tgandan keyin qoldiq bir marta kamayadi.
-    for bid, qty in cart.items():
-        book = by_id[str(bid)]
-        book["stock"] = int(book.get("stock", 0)) - int(qty)
-    save_books()
-
-    orders[order_id] = order
-    save_orders()
-
-    # Markaziy bazaga yozish muvaffaqiyatsiz bo'lsa local savdo saqlanib qoladi;
-    # sync_wrapper keyingi siklda aynan shu order_id bilan qayta urinadi.
+    # Atomic transaction on the cloud: it creates the sale and decreases
+    # shared stock together. Do not save the local sale or announce success
+    # until the single RPC completes; shipping details are entered later.
+    order["instant_stock_reserve"] = True
     try:
         cloud_result = cloud_bridge.create_order(order, preserve_stock=True)
-        if isinstance(cloud_result, dict) and cloud_result.get("id"):
-            cloud_id = str(cloud_result["id"])
-            order["cloud_order_id"] = cloud_id
-            orders[order_id] = order
-            save_orders()
-            try:
-                cloud_bridge.mark_instagram_order(cloud_id)
-            except Exception as mark_error:
-                print("Instagram source belgilash xatosi:", mark_error)
-    except Exception as e:
-        print("Instagram savdoni Supabase'ga yozish xatosi:", e)
+        if not isinstance(cloud_result, dict) or not cloud_result.get("id"):
+            raise RuntimeError("Markaziy omborda buyurtma tasdiqlanmadi")
+        order["cloud_order_id"] = str(cloud_result["id"])
+        if cloud_result.get("status") not in ("accepted", "paid", "shipping"):
+            raise RuntimeError("Markaziy omborda savdo hali band qilinmagan")
+        _apply_cloud_stocks(cloud_result.get("stocks"))
+    except Exception as exc:
+        # Retain the id in the live confirmation state: retry is idempotent.
+        refresh_books()
+        raise RuntimeError(
+            f"Savdo saqlanmadi, ombor o'zgarmadi. Qayta urinib ko'ring: {exc}"
+        ) from exc
 
+    order.pop("instant_stock_reserve", None)
+    orders[order_id] = order
+    save_orders()
     return order
 
 def _sold_book_date(raw):
@@ -4531,8 +4530,7 @@ def handle_message(message):
                         instagram_shipping_offer_keyboard(),
                     )
                 except Exception as e:
-                    send(chat_id, f"❌ Savdo saqlanmadi: {e}\n\nOmbor qayta tekshirildi.", admin_menu())
-                    states.pop(chat_id, None)
+                    send(chat_id, f"❌ Savdo saqlanmadi: {e}\n\nHali ombordan ayrilmadi. Qayta urinib ko‘ring.", instagram_confirm_keyboard())
                 return
 
             if action == "quick_stock_set":
