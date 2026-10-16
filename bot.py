@@ -1858,7 +1858,7 @@ def admin_menu():
     # test-chek tugmalari olib tashlandi; ma'lumotlar saqlanadi.
     return {
         "keyboard": [
-            [{"text": "🔎 Kitob qidirish"}, {"text": "📦 Ombor"}],
+            [{"text": "🔎 Kitob qidirish"}],
             [{"text": "📚 Sotilgan kitoblar"}, {"text": "📷 Instagram savdo"}],
             [{"text": "📦 Buyurtmalar"}, {"text": "👥 Foydalanuvchilar"}],
             [{"text": "📢 Xabar yuborish"}, {"text": "💾 Backup"}],
