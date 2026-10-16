@@ -2983,8 +2983,60 @@ def _instagram_money_token(token):
         return None
 
 
+def refresh_instagram_catalog():
+    """Instagram savdosi uchun yagona ombor: ilovaning Supabase katalogi.
+
+    Lokal books.json sinxronlash oralig‘ida eskirib qolishi mumkin.
+    Bu faqat xotiradagi ro‘yxatni yangilaydi; DBga yozmaydi.
+    """
+    global books
+    rows = cloud_bridge.rpc("bot_sync_pull", {"p_secret": cloud_bridge.SYNC_SECRET})
+    if not isinstance(rows, list):
+        raise RuntimeError("Ilova omboridan kitoblar ro‘yxati olinmadi")
+
+    previous = {str(b.get("id")): b for b in books if isinstance(b, dict)}
+    current = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("is_active") is False:
+            continue
+        try:
+            telegram_id = int(row.get("telegram_id") or 0)
+        except (ValueError, TypeError):
+            continue
+        if telegram_id <= 0:
+            continue
+        base_price = max(0, int(row.get("price") or 0))
+        discount = max(0, min(99, int(row.get("discount_percent") or 0)))
+        ends_at = str(row.get("discount_ends_at") or "")
+        if ends_at:
+            try:
+                if _local_datetime(ends_at) <= datetime.now():
+                    discount = 0
+            except Exception:
+                pass
+        sale_price = round(base_price * (100 - discount) / 100) if discount else base_price
+        book = dict(previous.get(str(telegram_id), {}))
+        book.update({
+            "id": telegram_id,
+            "cloud_id": str(row.get("id") or ""),
+            "name": str(row.get("title") or "Kitob"),
+            "price": sale_price,
+            "old_price": base_price if discount else 0,
+            "stock": max(0, int(row.get("stock") or 0)),
+            "cost_price": max(0, int(row.get("cost_price") or 0)),
+            "discount_ends_at": ends_at,
+            "category": str(row.get("category") or "Boshqalar"),
+            "author": str(row.get("author") or ""),
+        })
+        current.append(book)
+    if rows and not current:
+        raise RuntimeError("Ilova kitoblari Telegram ID bilan bog‘lanmagan")
+    books = current
+    return books
+
+
 def parse_instagram_sale_items(text):
-    refresh_books()
+    refresh_instagram_catalog()
     exact = {}
     for b in books:
         exact.setdefault(_instagram_name_key(b.get("name", "")), []).append(b)
@@ -3034,8 +3086,9 @@ def parse_instagram_sale_items(text):
 
 def instagram_sale_items_text(cart):
     lines = []
+    by_id = {str(b.get("id")): b for b in books}
     for bid, qty in cart.items():
-        b = find_book(bid)
+        b = by_id.get(str(bid))
         name = b.get("name", "Kitob") if b else "Kitob"
         stock = int(b.get("stock", 0)) if b else 0
         lines.append(f"• {name} × {int(qty)}  (omborda {stock} ta)")
@@ -3084,7 +3137,8 @@ def instagram_confirm_keyboard():
 
 
 def save_instagram_sale(state):
-    refresh_books()
+    # Tasdiqlashdan oldin ilovadagi eng yangi qoldiq va tannarxni olamiz.
+    refresh_instagram_catalog()
     cart = {str(k): int(v) for k, v in state.get("cart", {}).items()}
     if not cart:
         raise ValueError("Kitoblar tanlanmagan.")
@@ -4315,7 +4369,11 @@ def handle_message(message):
                 return
 
             if action == "instagram_items":
-                cart, errors = parse_instagram_sale_items(text)
+                try:
+                    cart, errors = parse_instagram_sale_items(text)
+                except Exception as exc:
+                    send(chat_id, f"❌ Ilova ombori bilan bog‘lanib bo‘lmadi: {exc}\nQayta urinib ko‘ring.")
+                    return
                 if errors:
                     send(
                         chat_id,
@@ -4325,8 +4383,9 @@ def handle_message(message):
                     return
 
                 shortages = []
+                live_by_id = {str(b.get("id")): b for b in books}
                 for bid, qty in cart.items():
-                    b = find_book(bid)
+                    b = live_by_id.get(str(bid))
                     if not b or int(b.get("stock", 0)) < int(qty):
                         shortages.append(
                             f"• {(b or {}).get('name','Kitob')} — kerak {qty}, omborda {int((b or {}).get('stock',0))} ta"
