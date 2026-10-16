@@ -29,6 +29,12 @@ def _local_datetime(raw):
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 ADMIN_ID = os.environ.get("ADMIN_ID", "").strip()
 
+# Bitta rasmiy havola: iOS -> App Store, Android -> Play Market.
+APP_DOWNLOAD_URL = os.environ.get(
+    "APP_DOWNLOAD_URL", "https://muhajeerbooks-link-production.up.railway.app/"
+).strip()
+ORDER_APP_BUTTON = "📚 Kitob buyurtma qilish"
+
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 # Railway Volume ishlatilsa /data doimiy saqlanadi
@@ -1091,8 +1097,8 @@ def notify_restock(book):
                 f"🔔 YAXSHI YANGILIK!\n\n"
                 f"📖 {book['name']} qayta sotuvda!\n"
                 f"📦 Omborda: {int(book['stock'])} ta\n\n"
-                "Kitobni ko‘rish uchun botga kiring.",
-                book_detail_keyboard(book, int(uid))
+                "Kitob buyurtma qilish uchun ilovamizga kiring.",
+                {"inline_keyboard": [[{"text": ORDER_APP_BUTTON, "url": APP_DOWNLOAD_URL}]]}
             )
         except Exception as e:
             failed_targets.append(str(uid))
@@ -1895,16 +1901,9 @@ def _send_saved_shipping_entry(chat_id, entry):
 # =========================
 
 def main_menu(chat_id):
-    buttons = [
-        [{"text": "📚 Kitoblar"}, {"text": "📂 Kategoriyalar"}],
-        [{"text": "🔎 Qidirish"}, {"text": "❤️ Sevimlilar"}],
-        [{"text": "🔥 Tavsiya etilgan"}, {"text": "🆕 Yangi kitoblar"}],
-        [{"text": "🏆 Eng ko‘p sotilgan"}],
-        [{"text": "🛒 Savatcha"}, {"text": "📦 Zakaz berish"}],
-        [{"text": "📜 Mening buyurtmalarim"}, {"text": "📞 Bog‘lanish"}],
-        [{"text": "🔢 Buyurtmani tekshirish"}],
-    ]
-
+    # Mijozga faqat ilova havolasi ko‘rsatiladi.
+    # Admin panel faqat ADMIN_ID egasiga qoladi.
+    buttons = [[{"text": ORDER_APP_BUTTON}]]
     if is_admin(chat_id):
         buttons.append([{"text": "⚙️ Admin panel"}])
 
@@ -1912,6 +1911,15 @@ def main_menu(chat_id):
         "keyboard": buttons,
         "resize_keyboard": True
     }
+
+
+def send_app_download_link(chat_id):
+    send(
+        chat_id,
+        "📚 Muhajeer Books ilovasida kitoblarni tanlang va buyurtma bering.\n\n"
+        f"📲 Ilovani yuklab olish: {APP_DOWNLOAD_URL}",
+        main_menu(chat_id),
+    )
 
 
 def global_discount_active():
@@ -3759,6 +3767,37 @@ def handle_message(message):
     username = user.get("username", "")
     register_user(chat_id, user)
 
+    # Mijoz menyusi to‘liq ilovaga ko‘chirildi. Eski tugmalar va
+    # avvalgi xabarlardagi buyurtma oqimi endi mijozga ochilmaydi.
+    if text == ORDER_APP_BUTTON:
+        states.pop(chat_id, None)
+        send_app_download_link(chat_id)
+        return
+
+    if not is_admin(chat_id):
+        states.pop(chat_id, None)
+        if text == "/start" or text.startswith("/start "):
+            send(
+                chat_id,
+                "Assalomu alaykum! 📚\n\n"
+                "Muhajeer Books botiga xush kelibsiz. "
+                "Kitob buyurtma qilish uchun quyidagi tugmani bosing.",
+                main_menu(chat_id),
+            )
+        else:
+            send(
+                chat_id,
+                "📚 Kitob buyurtmalari endi Muhajeer Books ilovasida qabul qilinadi. "
+                "Quyidagi tugmani bosing.",
+                main_menu(chat_id),
+            )
+        return
+
+    if text == "/start" or text.startswith("/start "):
+        states.pop(chat_id, None)
+        send(chat_id, "Assalomu alaykum! 📚", main_menu(chat_id))
+        return
+
     # Admin o'z chatidan yuborsa, test chek aynan shu chat_id ga qaytadi.
     if text in ("/testchek", "🧾 Test chek") and is_admin(chat_id):
         receipt = (
@@ -5007,8 +5046,13 @@ def handle_message(message):
             )
             return
 
+    # Admin ham eski mijoz funksiyalarini asosiy menyudan ishlatmaydi.
+    # Admin bo‘limining yuqoridagi barcha amallari o‘z holicha saqlanadi.
+    send(chat_id, "⚙️ Admin paneldagi bo‘limni tanlang.", admin_menu())
+    return
+
     # =========================
-    # CUSTOMER: KITOB TAVSIYACHISI
+    # CUSTOMER: KITOB TAVSIYACHISI (eski kod, ishlatilmaydi)
     # =========================
     if text == "🎯 Menga kitob tanla":
         states[chat_id] = {"action": "recommend_interest"}
@@ -5406,6 +5450,15 @@ def handle_callback(callback):
     except Exception as e:
         print("Callback answer xatosi:", e)
 
+    if chat_id is None:
+        return
+
+    # Eski katalog/savatcha inline tugmalari mijozlar uchun endi yopiq.
+    # Faqat admin callbacklari avvalgidek davom etadi.
+    if not is_admin(chat_id):
+        states.pop(chat_id, None)
+        send_app_download_link(chat_id)
+        return
 
     if data.startswith("finance_"):
         if not is_admin(chat_id):
@@ -6883,7 +6936,8 @@ def main():
                     handle_callback(update["callback_query"])
 
             sync_app_order_status_notifications()
-            check_inactive_users()
+            # Eski mijoz menyusiga olib boradigan avtomatik reklama
+            # xabarlari endi yuborilmaydi.
 
         except Exception as e:
             print("Xato:", e)
