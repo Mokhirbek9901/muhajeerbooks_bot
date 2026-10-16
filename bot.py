@@ -4094,22 +4094,55 @@ def handle_message(message):
             send(chat_id,"⚡ Qoldiqni ➖1 / ➕1 bilan o‘zgartiring.\nOxirida ✅ OK — Saqlash ni bosing.",quick_stock_list_keyboard(chat_id)); return
 
         if text == "📦 Ombor":
-            lines = ["📦 Ombor qoldig‘i:"]
+            # Kitoblar yangilangan holatdan olinadi; ombordagi sonlar o‘zgartirilmaydi.
+            states.pop(chat_id, None)
+            refresh_books()
+            lines = []
             total_stock = 0
             total_value = 0
 
             for b in books:
-                stock = int(b.get("stock", 0))
+                stock = int(b.get("stock") or 0)
                 price = effective_price(b)
                 total_stock += stock
                 if stock > 0 and price > 0:
                     total_value += stock * price
-                lines.append(f"• {b['name']} — {stock} ta")
+                lines.append(f"• {b.get('name', 'Kitob')} — {stock} ta")
 
-            lines.append(f"\n📚 JAMI QOLGAN KITOBLAR: {total_stock} ta")
+            if not lines:
+                lines.append("Hozircha kitoblar mavjud emas.")
+            lines.append("")
+            lines.append(f"📚 JAMI QOLGAN KITOBLAR: {total_stock} ta")
             lines.append(f"💰 OMBORDAGI KITOBLAR QIYMATI: ₩{total_value:,}")
 
-            send(chat_id, "\n".join(lines), admin_menu())
+            # Telegram bitta xabarda 4096 belgidan ortiq matnni qabul qilmaydi.
+            # Har bir qismga sarlavha va emoji belgilar sig‘ishi uchun
+            # xavfsiz 2800-belgilik limit qo‘llanadi.
+            pages = []
+            current_lines = []
+            current_length = 0
+            max_chars = 2800
+            for line in lines:
+                # Juda uzun nomlar bo‘lsa ham matnni kesib tashlamaymiz.
+                segments = [line[i:i + max_chars] for i in range(0, len(line), max_chars)] or [""]
+                for segment in segments:
+                    extra = len(segment) + 1
+                    if current_lines and current_length + extra > max_chars:
+                        pages.append("\n".join(current_lines))
+                        current_lines = []
+                        current_length = 0
+                    current_lines.append(segment)
+                    current_length += extra
+            if current_lines:
+                pages.append("\n".join(current_lines))
+
+            for index, page_text in enumerate(pages):
+                page_heading = f"📦 Ombor qoldig‘i ({index + 1}/{len(pages)})\n\n"
+                send(
+                    chat_id,
+                    page_heading + page_text,
+                    admin_menu() if index == len(pages) - 1 else None,
+                )
             return
         if text == "💸 Chegirma berish":
             states[chat_id] = {"action": "global_discount"}
