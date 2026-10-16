@@ -132,19 +132,38 @@ def api(method, data=None):
         print(f"Telegram API tarmoq xatosi [{method}]: {e}")
         raise
 
+def _telegram_message_chunks(text, max_utf16_units=3000):
+    """Xabarni Telegram chegarasidan oshirmasdan, matn yo‘qotmay bo‘ladi."""
+    content = str(text)
+    if len(content.encode("utf-16-le")) // 2 <= max_utf16_units:
+        return [content]
+    chunks = []
+    current = []
+    units = 0
+    for char in content:
+        char_units = 2 if ord(char) > 0xFFFF else 1
+        if current and units + char_units > max_utf16_units:
+            chunks.append("".join(current))
+            current = []
+            units = 0
+        current.append(char)
+        units += char_units
+    if current:
+        chunks.append("".join(current))
+    return chunks
+
+
 def send(chat_id, text, reply_markup=None):
-    data = {
-        "chat_id": chat_id,
-        "text": text
-    }
-
-    if reply_markup is not None:
-        data["reply_markup"] = json.dumps(
-            reply_markup,
-            ensure_ascii=False
-        )
-
-    return api("sendMessage", data)
+    # Telegram 4096 UTF-16 birlikdan uzun sendMessage matnini rad etadi.
+    # Menyu faqat yakuniy xabarga beriladi; hech bir kitob tushib qolmaydi.
+    chunks = _telegram_message_chunks(text)
+    result = None
+    for index, chunk in enumerate(chunks):
+        data = {"chat_id": chat_id, "text": chunk}
+        if reply_markup is not None and index == len(chunks) - 1:
+            data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+        result = api("sendMessage", data)
+    return result
 
 
 def edit_message(chat_id, message_id, text, reply_markup=None):
@@ -5269,9 +5288,8 @@ def handle_message(message):
 # =========================
 
 def handle_callback(callback):
-    # Callback kelganda ham kitoblar va buyurtmalarning eng yangi holatini yuklaymiz.
-    load_books()
-    load_orders()
+    # Eskirgan tugmalar uchun Telegram 400 qaytarishi mumkin.
+    # Callbackni tasdiqlashni disk/cloud amallaridan oldin qilamiz.
     callback_id = callback["id"]
     message = callback.get("message", {})
     chat = message.get("chat", {})
@@ -5284,11 +5302,21 @@ def handle_callback(callback):
             "answerCallbackQuery",
             {"callback_query_id": callback_id}
         )
+    except urllib.error.HTTPError as e:
+        print("Callback answer xatosi:", e)
+        if e.code == 400:
+            # Javob muddati o'tgan callbackni qayta ishlab,
+            # eski amallarni takrorlamaymiz.
+            return
     except Exception as e:
         print("Callback answer xatosi:", e)
 
     if chat_id is None:
         return
+
+    # Oxirgi katalog va buyurtmalarni faqat yaroqli callback uchun yuklaymiz.
+    load_books()
+    load_orders()
 
     # Eski katalog/savatcha inline tugmalari mijozlar uchun endi yopiq.
     # Faqat admin callbacklari avvalgidek davom etadi.
@@ -6706,12 +6734,14 @@ def main():
 
             for update in result.get("result", []):
                 offset = update["update_id"] + 1
-
-                if "message" in update:
-                    handle_message(update["message"])
-
-                elif "callback_query" in update:
-                    handle_callback(update["callback_query"])
+                try:
+                    if "message" in update:
+                        handle_message(update["message"])
+                    elif "callback_query" in update:
+                        handle_callback(update["callback_query"])
+                except Exception as update_error:
+                    # Bitta yaroqsiz xabar qolgan xabarlarni to‘xtatmasin.
+                    print("Telegram update qayta ishlash xatosi:", update.get("update_id"), update_error)
 
             sync_app_order_status_notifications()
             # Eski mijoz menyusiga olib boradigan avtomatik reklama
