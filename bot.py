@@ -4,7 +4,6 @@ import json
 import urllib.request
 import urllib.parse
 import urllib.error
-import random
 import io
 import re
 import subprocess
@@ -51,78 +50,6 @@ SHIPPING_QUEUE_FILE = os.path.join(DATA_DIR, "shipping_queue.json")
 BOOK_IMPORT_MARKER = os.path.join(DATA_DIR, "books_import_20260906_v1.done")
 LOW_STOCK_LIMIT = 2
 STATS_RESET_ORDER_ID = 1788893918395  # 2026-09-08 final production reset
-
-# =========================
-# FAOL BO'LMAGAN MIJOZLAR
-# =========================
-
-INACTIVE_DAYS = 30
-INACTIVE_CHECK_INTERVAL = 6 * 60 * 60  # har 6 soatda tekshiriladi
-last_inactive_check = 0
-
-INACTIVE_MESSAGES = [
-    "🤨 Yo‘qolib ketdingiz-ku?\n\n"
-    "Sizni kitoblar orasida ko‘rmay qo‘ydik 😅📚\n\n"
-    "🆕 Yangi kitoblar kelgan. Bir ko‘rib qo‘ymaysizmi?",
-
-    "📚 Sizni anchadan beri ko‘rmayapmiz…\n\n"
-    "Balki yana bir yaxshi kitob vaqti kelgandir? 👀\n\n"
-    "Bir kirib, o‘zingizga bittasini tanlab qo‘ying 😅",
-
-    "👀 Kitob o‘qishga vaqt topilmayaptimi?\n\n"
-    "Hech bo‘lmasa bittasini boshlab qo‘yamiz 😅📖\n\n"
-    "Balki aynan shu kitob sizga yoqib qolar.",
-
-    "📢 Bizda yangiliklar bor!\n\n"
-    "Siz yo‘qligingizda yangi kitoblar kelibdi 😅📚\n\n"
-    "Bir kirib, nimalar qo‘shilganini ko‘rib chiqing 😉",
-
-    "😏 Biz sizni unutmadik.\n\n"
-    "Lekin kitoblar: «Qachon keladi ekan?» deb kutyapti 😂📚\n\n"
-    "Bir ko‘rib qo‘ying, balki bittasi ko‘nglingizni olib qo‘yar.",
-
-    "🫣 Bir savol…\n\n"
-    "Oxirgi marta qachon kitob o‘qigansiz? 😂📖\n\n"
-    "Balki bugun yana boshlash uchun yaxshi kun bo‘lar?",
-
-    "📚 Kitoblar joyida.\nBot joyida.\n\n"
-    "Faqat **siz yo‘qsiz** 😅\n\n"
-    "Bir kirib chiqishingizga qarshi emasmiz 😂",
-
-    "🚨 Diqqat!\n\n"
-    "Siz o‘qimay yurganingizda kitoblar ko‘payib ketdi 😂📚\n\n"
-    "Yangi kelganlarini ko‘rib qo‘ying, keyin «bilmagan ekanman» demang 😏",
-
-    "😅 Bizda kichkina muammo bor…\n\n"
-    "Siz uchun kitoblar yig‘ilib qolyapti.\n\n"
-    "Endi ularni kim o‘qiydi? 😂📚",
-
-    "👋 Hey, kitobxon!\n\n"
-    "Ancha bo‘ldi-ku…\nBalki yana bir kitob bilan do‘stlashish vaqti kelgandir? 📖❤️\n\n"
-    "Bizda yangilari ham bor 😉",
-
-    "👀 Sizni qidirib qoldik…\n\n"
-    "Kitoblar orasidan topolmadik 😅📚\n\n"
-    "Balki o‘zingiz kelib, bir ko‘rib ketarsiz?",
-
-    "😴 Kitoblar ham zerikib qoldi…\n\n"
-    "«Bizni qachon o‘qishadi?» deb turishibdi 😂📖\n\n"
-    "Keling, bittasini xursand qilamiz.",
-
-    "🤔 Bugun kitob olish uchun bahona qidiryapsizmi?\n\n"
-    "Mana bahona: **yangi kitoblar kelgan** 😅📚\n\n"
-    "Qolganini o‘zingiz hal qilasiz 😉",
-
-    "📖 Bir paytlar bu botdan kitob izlagan edingiz…\n\n"
-    "Biz esa o‘sha paytdan beri yangi kitoblar qo‘shib kelmoqdamiz 😅\n\n"
-    "Qani, yana bir qarab qo‘ying.",
-
-    "🫵 Sizga bir kitob topib qo‘yishimiz kerak shekilli 😅\n\n"
-    "Chunki shuncha kitob turibdi, siz esa yo‘q 😂📚\n\n"
-    "Balki bugun omadli kitobingizni toparmiz?"
-]
-
-
 
 # =========================
 # TO'LOV / YETKAZIB BERISH
@@ -1927,19 +1854,15 @@ def global_discount_active():
 
 
 def admin_menu():
-    # Rasmlarda belgilangan tugmalar faqat menyudan yashirildi.
-    # Ularning ma'lumotlari yoki ichki admin funksiyalari o'chirilmaydi.
+    # Ixcham ikki ustunli admin menyu. Avtomatik/random sinov va
+    # test-chek tugmalari olib tashlandi; ma'lumotlar saqlanadi.
     return {
         "keyboard": [
-            [{"text": "🔎 Kitob qidirish"}],
-            [{"text": "📦 Ombor"}],
-            [{"text": "📚 Sotilgan kitoblar"}],
-            [{"text": "📷 Instagram savdo"}],
-            [{"text": "📦 Buyurtmalar"}],
-            [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
-            [{"text": "🧪 Random xabarni sinash"}, {"text": "🧾 Test chek"}],
-            [{"text": "💾 Backup"}, {"text": "📥 Backup tiklash"}],
-            [{"text": "🏠 Asosiy menyu"}],
+            [{"text": "🔎 Kitob qidirish"}, {"text": "📦 Ombor"}],
+            [{"text": "📚 Sotilgan kitoblar"}, {"text": "📷 Instagram savdo"}],
+            [{"text": "📦 Buyurtmalar"}, {"text": "👥 Foydalanuvchilar"}],
+            [{"text": "📢 Xabar yuborish"}, {"text": "💾 Backup"}],
+            [{"text": "📥 Backup tiklash"}, {"text": "🏠 Asosiy menyu"}],
         ],
         "resize_keyboard": True
     }
@@ -2462,73 +2385,6 @@ def order_preview_text(state, show_payment_info=True):
 # =========================
 # MIJOZLAR / QIDIRUV / HISOBOT
 # =========================
-
-def inactive_new_books_keyboard():
-    return {
-        "inline_keyboard": [
-            [{"text": "🆕 Yangi kitoblarni ko‘rish", "callback_data": "new_books"}]
-        ]
-    }
-
-
-def send_inactive_message(chat_id):
-    refresh_books()
-
-    text = random.choice(INACTIVE_MESSAGES)
-    markup = inactive_new_books_keyboard()
-
-    try:
-        send(chat_id, text, markup)
-        return True
-    except Exception as e:
-        print("Faol bo‘lmagan mijozga xabar yuborish xatosi:", chat_id, e)
-        return False
-
-
-def check_inactive_users(force=False):
-    global last_inactive_check
-
-    now = time.time()
-    if not force and now - last_inactive_check < INACTIVE_CHECK_INTERVAL:
-        return
-    last_inactive_check = now
-
-    load_users()
-    changed = False
-    period = INACTIVE_DAYS * 24 * 60 * 60
-
-    for uid, user in list(users.items()):
-        if str(uid) == str(ADMIN_ID):
-            continue
-        if not isinstance(user, dict):
-            continue
-
-        try:
-            last_active = float(user.get("last_active", 0) or 0)
-        except Exception:
-            last_active = 0
-
-        # Agar xabar allaqachon yuborilgan bo‘lsa, keyingi 30 kunni
-        # aynan o‘sha xabar yuborilgan vaqtdan hisoblaymiz.
-        last_reminder = user.get("inactive_message_sent", 0)
-        try:
-            last_reminder = float(last_reminder or 0)
-        except Exception:
-            last_reminder = 0
-
-        reference_time = max(last_active, last_reminder)
-        if reference_time <= 0 or now - reference_time < period:
-            continue
-
-        # 30 kun o‘tgach yana random xabar yuboriladi.
-        # Foydalanuvchi botga kirsa register_user inactive_message_sent=False qiladi.
-        if send_inactive_message(int(uid)):
-            user["inactive_message_sent"] = int(now)
-            changed = True
-
-    if changed:
-        save_users()
-
 
 def valid_phone_number(value):
     """Telefon raqamida 8–15 ta raqam bo‘lishini tekshiradi."""
@@ -3788,32 +3644,6 @@ def handle_message(message):
         send(chat_id, "Assalomu alaykum! 📚", main_menu(chat_id))
         return
 
-    # Admin o'z chatidan yuborsa, test chek aynan shu chat_id ga qaytadi.
-    if text in ("/testchek", "🧾 Test chek") and is_admin(chat_id):
-        receipt = (
-            "🧾 MUHAJEER BOOKS\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "        ELEKTRON CHEK\n"
-            "━━━━━━━━━━━━━━━━\n\n"
-            "Buyurtma: #TEST\n"
-            "Mijoz: Test xaridor\n\n"
-            "📚 Tarixiy siyosiy SET\n"
-            "1 × ₩22,000 ........ ₩22,000\n"
-            "   Set narxiga pochta kiritilgan\n\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "Kitob / set:          ₩22,000\n"
-            "Yetkazib berish:       BEPUL\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "JAMI:                 ₩22,000\n"
-            "━━━━━━━━━━━━━━━━\n\n"
-            "✅ To‘lov qabul qilindi\n\n"
-            "MUHAJEER BOOKS 📚\n"
-            "Koreya bo‘ylab o‘zbek kitoblari\n\n"
-            "🧪 Bu test cheki — haqiqiy buyurtma emas."
-        )
-        send(chat_id, receipt)
-        return
-
     # =========================
     # ADMIN BACKUP RESTORE
     # =========================
@@ -4189,22 +4019,6 @@ def handle_message(message):
             for index, user_message in enumerate(user_messages):
                 keyboard = admin_menu() if index == len(user_messages) - 1 else None
                 send(chat_id, user_message, keyboard)
-            return
-
-        if text == "🧪 Random xabarni sinash":
-            states.pop(chat_id, None)
-            try:
-                if send_inactive_message(chat_id):
-                    send(
-                        chat_id,
-                        "✅ Test xabari yuborildi. 15 ta variantdan bittasi random tanlandi.",
-                        admin_menu()
-                    )
-                else:
-                    send(chat_id, "❌ Test xabarini yuborib bo‘lmadi.", admin_menu())
-            except Exception as e:
-                print("Random test xabari xatosi:", e)
-                send(chat_id, f"❌ Test xabarini yuborib bo‘lmadi: {e}", admin_menu())
             return
 
         if text == "📢 Xabar yuborish":
@@ -6834,64 +6648,6 @@ def _start_order_notify_server():
 # MAIN
 # =========================
 
-def _send_requested_test_receipt():
-    """Railway env orqali adminning o'ziga bir martalik test chek yuboradi."""
-    nonce = os.environ.get("TEST_RECEIPT_NONCE", "").strip()
-    if not nonce or not ADMIN_ID:
-        return
-
-    marker = os.path.join(DATA_DIR, "test_receipt_nonce.txt")
-    try:
-        if os.path.exists(marker):
-            with open(marker, "r", encoding="utf-8") as fh:
-                if fh.read().strip() == nonce:
-                    return
-    except Exception:
-        pass
-
-    text = (
-        "🧾 MUHAJEER BOOKS\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "        ELEKTRON CHEK\n"
-        "━━━━━━━━━━━━━━━━\n\n"
-        "Buyurtma: #TEST\n"
-        "Mijoz: Test xaridor\n\n"
-        "📚 Tarixiy siyosiy SET\n"
-        "1 × ₩22,000 ........ ₩22,000\n"
-        "   Set narxiga pochta kiritilgan\n\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "Kitob / set:          ₩22,000\n"
-        "Yetkazib berish:       BEPUL\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "JAMI:                 ₩22,000\n"
-        "━━━━━━━━━━━━━━━━\n\n"
-        "✅ To‘lov qabul qilindi\n\n"
-        "MUHAJEER BOOKS 📚\n"
-        "Koreya bo‘ylab o‘zbek kitoblari\n\n"
-        "🧪 Bu test cheki — haqiqiy buyurtma emas."
-    )
-
-    try:
-        result = send(int(ADMIN_ID), text)
-        sent = (result or {}).get("result") or {}
-        sent_chat = sent.get("chat") or {}
-        print(
-            "Test Muhajeer Books cheki yuborildi:",
-            "ok=", bool((result or {}).get("ok")),
-            "chat_id=", sent_chat.get("id"),
-            "chat_type=", sent_chat.get("type"),
-            "username=", sent_chat.get("username"),
-            "message_id=", sent.get("message_id"),
-        )
-        try:
-            with open(marker, "w", encoding="utf-8") as fh:
-                fh.write(nonce)
-        except Exception as marker_error:
-            print("Test chek markerini yozib bo'lmadi:", marker_error)
-    except Exception as exc:
-        print("Test chekni yuborib bo'lmadi:", exc)
-
-
 def main():
     if not TOKEN:
         raise Exception("BOT_TOKEN sozlanmagan!")
@@ -6902,7 +6658,6 @@ def main():
     load_favorites()
     load_ratings()
     load_restock()
-    _send_requested_test_receipt()
     _start_order_notify_server()
 
     offset = None
