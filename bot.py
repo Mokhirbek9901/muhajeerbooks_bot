@@ -1927,28 +1927,18 @@ def global_discount_active():
 
 
 def admin_menu():
-    discount_button = (
-        {"text": "🛑 Chegirmani to‘xtatish"}
-        if global_discount_active()
-        else {"text": "💸 Chegirma berish"}
-    )
-
+    # Rasmlarda belgilangan tugmalar faqat menyudan yashirildi.
+    # Ularning ma'lumotlari yoki ichki admin funksiyalari o'chirilmaydi.
     return {
         "keyboard": [
-            [{"text": "📚 Kitoblar ro‘yxati"}, {"text": "🔎 Kitob qidirish"}],
-            [{"text": "➕ Kitob qo‘shish"}, {"text": "✏️ Kitob tahrirlash"}],
-            [{"text": "📦 Ombor"}, {"text": "🗑 Kitob o‘chirish"}],
-            [{"text": "⚡ Tezkor qoldiq"}],
+            [{"text": "🔎 Kitob qidirish"}],
+            [{"text": "📦 Ombor"}],
             [{"text": "📚 Sotilgan kitoblar"}],
             [{"text": "📷 Instagram savdo"}],
-            [{"text": "📦 Zakaslar"}],
-            [{"text": "📊 Hisobot"}, {"text": "📦 Buyurtmalar"}],
-            [{"text": "📅 Bugungi hisobot"}],
-            [{"text": "💰 Moliya"}, {"text": "➕ Xarajat"}],
+            [{"text": "📦 Buyurtmalar"}],
             [{"text": "👥 Foydalanuvchilar"}, {"text": "📢 Xabar yuborish"}],
             [{"text": "🧪 Random xabarni sinash"}, {"text": "🧾 Test chek"}],
             [{"text": "💾 Backup"}, {"text": "📥 Backup tiklash"}],
-            [discount_button],
             [{"text": "🏠 Asosiy menyu"}],
         ],
         "resize_keyboard": True
