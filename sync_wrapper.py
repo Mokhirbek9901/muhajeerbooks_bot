@@ -828,7 +828,6 @@ def sync_loop():
 
             latest_orders = _read_orders()
             merged_orders = dict(latest_orders)
-            new_app_orders = []
             for row in cloud_orders:
                 if not isinstance(row, dict):
                     continue
@@ -841,23 +840,15 @@ def sync_loop():
                 if merged_order is None:
                     continue
                 merged_orders[key] = merged_order
-                cloud_id = str(row.get("id") or "")
-                if (
-                    key not in latest_orders
-                    and cloud_id
-                    and str(row.get("source") or "app") == "app"
-                ):
-                    new_app_orders.append(merged_order)
 
             if _hash(merged_orders) != _hash(latest_orders):
                 _write_json(ORDERS_FILE, merged_orders)
 
-            for order in new_app_orders:
-                try:
-                    _notify_admin_app_order(order)
-                    print(f"Ilova → bot yangi buyurtma: {order.get('order_id')}")
-                except Exception as e:
-                    print("Ilova buyurtmasi admin notification xatosi:", e)
+            # App orders are mirrored into the local bot state, but NEVER
+            # send a second Telegram notification from this sync loop.
+            # The immediate /notify-order webhook in bot.py is the only
+            # admin Telegram alert. Keep cloud order syncing and customer
+            # status notifications working normally.
 
             seen_order_ids.update(current_cloud_ids)
             initialized = True
