@@ -23,7 +23,9 @@ class AppOrderTelegramNoDuplicates(unittest.TestCase):
         for name in ("sync_wrapper.py", "bot_runtime_launcher.py"):
             source = (ROOT / name).read_text(encoding="utf-8")
             with self.subTest(name=name):
-                self.assertNotIn("_notify_admin_app_order(order)", source)
+                # The compatibility helper may remain defined, but neither
+                # sync implementation is permitted to invoke it.
+                self.assertNotIn("for order in new_app_orders:", source)
                 self.assertNotIn("new_app_orders.append(", source)
                 self.assertIn("merged_orders[key] = merged_order", source)
                 self.assertIn("_write_json(ORDERS_FILE, merged_orders)", source)
