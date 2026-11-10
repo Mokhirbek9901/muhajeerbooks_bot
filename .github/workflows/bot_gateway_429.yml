@@ -1,0 +1,18 @@
+name: Bot gateway 429 regression
+on:
+  push:
+    branches: ['fix/neon-bot-429-20261111','main']
+    paths: ['supabase_http.py','cloud_bridge.py','bot.py','test_supabase_http.py','test_instagram_rate_limit.py','.github/workflows/bot_gateway_429.yml']
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest -v test_supabase_http test_instagram_rate_limit test_no_duplicate_app_order_telegram
+      - run: python -m py_compile bot.py cloud_bridge.py supabase_http.py sync_wrapper.py bot_runtime_launcher.py bot_runtime_free_guard.py

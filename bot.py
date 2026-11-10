@@ -3036,7 +3036,16 @@ def refresh_instagram_catalog():
 
 
 def parse_instagram_sale_items(text):
-    refresh_instagram_catalog()
+    try:
+        refresh_instagram_catalog()
+    except RuntimeError as exc:
+        # Matching names does not reserve or sell stock. During a temporary
+        # gateway 429 use the existing catalog; final confirmation still uses
+        # the unchanged atomic server order RPC and current stock validation.
+        cause = exc.__cause__
+        if not isinstance(cause, urllib.error.HTTPError) or cause.code != 429 or not books:
+            raise
+        print("Katalog vaqtincha band: nomlar saqlangan ro‘yxatdan tanlanadi; savdo serverda tasdiqlanadi.")
     exact = {}
     for b in books:
         exact.setdefault(_instagram_name_key(b.get("name", "")), []).append(b)

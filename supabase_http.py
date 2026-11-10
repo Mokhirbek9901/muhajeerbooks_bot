@@ -11,7 +11,7 @@ import urllib.request
 # Oddiy 500 xatolar retry qilinmaydi: faqat Supabase'ning aniq
 # "Failed to get project config" javobi serverga so'rov yetib bormagan
 # vaqtinchalik platform xatosi sifatida alohida qayta uriniladi.
-TRANSIENT_HTTP_STATUS = frozenset({408, 409, 502, 503, 504, 520})
+TRANSIENT_HTTP_STATUS = frozenset({408, 409, 429, 502, 503, 504, 520})
 TRANSIENT_500_MARKERS = (
     "failed to get project config",
 )
@@ -53,6 +53,7 @@ def post_json(url, payload, headers, timeout, max_attempts=4, sleeper=time.sleep
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
     for attempt in range(max_attempts):
+        retry_after = None
         request_headers = dict(headers)
         if attempt:
             request_headers["X-Retry-Count"] = str(attempt)
@@ -76,6 +77,8 @@ def post_json(url, payload, headers, timeout, max_attempts=4, sleeper=time.sleep
             if _is_egress_restricted(exc.code, error_body):
                 _RESTRICTED_UNTIL = time.time() + _RESTRICTED_BACKOFF_SECONDS
 
+            if exc.code == 429:
+                retry_after = (exc.hdrs or {}).get("Retry-After")
             retryable = _retryable_http_error(exc.code, error_body)
             if not retryable or attempt + 1 >= max_attempts:
                 # Caller logida asl Supabase javobi yo'qolib ketmasligi uchun
@@ -94,6 +97,13 @@ def post_json(url, payload, headers, timeout, max_attempts=4, sleeper=time.sleep
         # 0.5s, 1s, 2s (+ kichik jitter). Cheklangan urinishlar Supabase
         # ulanish poolini ortiqcha so'rov bilan bosib yubormaydi.
         delay = 0.5 * (2**attempt) + random.uniform(0.0, 0.25)
+        if retry_after is not None:
+            try:
+                seconds = float(retry_after)
+                if 0 <= seconds <= 30:
+                    delay = max(delay, seconds)
+            except (TypeError, ValueError):
+                pass
         sleeper(delay)
 
     raise RuntimeError("Supabase so‘rovi bajarilmadi")

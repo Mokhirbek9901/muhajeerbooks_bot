@@ -35,7 +35,7 @@ def rpc(name, payload):
         except Exception:
             detail = str(exc)
         raise RuntimeError(
-            f"Supabase HTTP {exc.code}: {detail or str(exc)}"
+            f"Server HTTP {exc.code}: {detail or str(exc)}"
         ) from exc
     except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
         raise RuntimeError(f"Supabase vaqtincha ulanmayapti: {exc}") from exc
