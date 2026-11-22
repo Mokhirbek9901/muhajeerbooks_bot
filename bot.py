@@ -6804,7 +6804,7 @@ def main():
     load_ratings()
     load_restock()
     _start_order_notify_server()
-    mini_app.start(api, {"name": BANK_NAME, "number": CARD_NUMBER, "owner": CARD_OWNER})
+    mini_app.start(api, {"name": BANK_NAME, "number": CARD_NUMBER, "owner": CARD_OWNER}, DATA_DIR)
 
     offset = None
 

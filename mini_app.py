@@ -15,6 +15,7 @@ import time
 from urllib import error, parse
 import uuid
 
+import channel_recommendations
 import cloud_bridge
 from supabase_http import post_json
 
@@ -383,7 +384,7 @@ def menu_button():
     return {"text": "Do‘konni ochish", "web_app": {"url": URL}}
 
 
-def start(telegram_api, bank):
+def start(telegram_api, bank, state_directory):
     """Check the shared checkout gateway before exposing a new bot menu button."""
     _BANK.update(bank)
 
@@ -408,6 +409,10 @@ def start(telegram_api, bank):
                 print("Telegram Mini App: shared catalog ready; menu=" + str(ENABLE_MENU), flush=True)
                 threading.Thread(target=_notice_loop, args=(telegram_api,),
                                  daemon=True, name="mini-app-order-notices").start()
+                channel_recommendations.start(
+                    telegram_api, lambda params: _rpc(1, "catalog", params),
+                    os.environ, state_directory,
+                )
                 return
             except Exception as exc:
                 _LOG.warning("Mini App readiness check failed: %s", type(exc).__name__)
