@@ -210,7 +210,12 @@ function renderTabs() {
 }
 
 function bookImages(book) {
-  const values = [book.cover, ...(Array.isArray(book.images) ? book.images : [])];
+  // `cover` is usually a generated thumbnail of the first original image.
+  // Counting both makes one photo look like two different gallery items.
+  const originals = Array.isArray(book.images)
+    ? book.images.filter(url => typeof url === 'string' && url.startsWith('https://'))
+    : [];
+  const values = originals.length ? originals : [book.cover];
   return [...new Set(values.filter(url => typeof url === 'string' && url.startsWith('https://')))];
 }
 
