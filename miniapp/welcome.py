@@ -45,6 +45,12 @@ def configure(api):
         if not invite:
             print("Telegram channel welcome: grant bot Invite Users permission to "
                   "receive joining requests", flush=True)
+        if invite:
+            try:
+                _announce_request_link(api)
+            except Exception as exc:
+                print("Telegram channel welcome: request-link setup failed (" +
+                      type(exc).__name__ + ")", flush=True)
     except Exception as exc:
         print("Telegram channel welcome: channel setup unavailable (" +
               type(exc).__name__ + ")", flush=True)
@@ -127,6 +133,8 @@ def handle(update, api, state_directory):
     key = f"{event['chat']['id']}:{user_id}"
     history = _seen(path, key, now)
     if key in history:
+        if joining:
+            _approve_our_link(joining, api)
         return True
 
     message = (
@@ -151,6 +159,8 @@ def handle(update, api, state_directory):
         # expected and must never block processing other bot updates.
         print("Telegram channel welcome: " + label + " message not delivered (" +
               type(exc).__name__ + ")", flush=True)
+        if joining:
+            _approve_our_link(joining, api)
         return True
 
     try:
@@ -158,7 +168,74 @@ def handle(update, api, state_directory):
     except OSError:
         print("Telegram channel welcome: dedup state not persisted", flush=True)
     print("Telegram channel welcome: " + label + " message delivered", flush=True)
+    if joining:
+        _approve_our_link(joining, api)
     return True
+
+
+
+_LINK_NAME = "Muhajeer Books Mini App"
+_LINK_FILE = "telegram_welcome_join_link.txt"
+_NOTICE_FILE = "telegram_welcome_join_link_notified"
+
+
+def _data_dir():
+    root = Path("/data")
+    return root if root.is_dir() else Path(".")
+
+
+def _our_link():
+    try:
+        return (_data_dir() / _LINK_FILE).read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, OSError):
+        return ""
+
+
+def _announce_request_link(api):
+    """Create one welcome link and privately tell the bot administrator."""
+    admin_id = os.environ.get("ADMIN_ID", "").strip()
+    if not admin_id.isdecimal():
+        return
+    link = _our_link()
+    if not link:
+        link = create_request_link(api)
+        (_data_dir() / _LINK_FILE).write_text(link + "\n", encoding="utf-8")
+        print("Telegram channel welcome: request-to-join link created", flush=True)
+    marker = _data_dir() / _NOTICE_FILE
+    if marker.exists():
+        return
+    _result(api, "sendMessage", {
+        "chat_id": admin_id,
+        "text": (
+            "✅ Muhajeer Books kanali uchun avtomatik kutib olish havolasi:\n\n"
+            + link +
+            "\n\nShu havolani yangi mijozlarga yuboring. Mijoz kirish so‘rovi "
+            "yuborganda bot avval Mini App haqidagi xabarni yuboradi, keyin "
+            "shu maxsus havola orqali kelgan so‘rovni avtomatik tasdiqlaydi.\n\n"
+            "Eslatma: eski ommaviy kanal havolasidan to‘g‘ridan-to‘g‘ri "
+            "qo‘shilgan begona mijozga Telegram shaxsiy xabar yuborishga "
+            "ruxsat bermasligi mumkin."
+        ),
+    })
+    marker.write_text("1\n", encoding="utf-8")
+    print("Telegram channel welcome: request link sent to administrator", flush=True)
+
+
+def _approve_our_link(joining, api):
+    """Only approve joins made via this bot's own dedicated welcome link."""
+    own_link = _our_link()
+    supplied = (joining.get("invite_link") or {}).get("invite_link", "")
+    if not own_link or supplied != own_link:
+        return
+    try:
+        _result(api, "approveChatJoinRequest", {
+            "chat_id": joining["chat"]["id"],
+            "user_id": joining["from"]["id"],
+        })
+        print("Telegram channel welcome: dedicated join request approved", flush=True)
+    except Exception as exc:
+        print("Telegram channel welcome: dedicated approval unavailable (" +
+              type(exc).__name__ + ")", flush=True)
 
 
 def create_request_link(api):
