@@ -48,12 +48,8 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
   letter-spacing: -.025em;
 }
 .mark {
-  display: grid;
-  place-items: center;
-  width: 2.05rem;
-  height: 2.05rem;
-  color: #f7e5b4;
-  background: var(--teal);
+  display: block;
+  flex: none;
   border-radius: .58rem;
 }
 

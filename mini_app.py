@@ -31,6 +31,7 @@ _ASSETS = {
     "/mini/": ("index.html", "text/html; charset=utf-8"),
     "/mini/app.css": ("app.css", "text/css; charset=utf-8"),
     "/mini/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/mini/muhajeer-logo.jpg": ("muhajeer-logo.jpg", "image/jpeg"),
 }
 _DIRECTORY = Path(__file__).parent / "miniapp"
 _READY = threading.Event()
