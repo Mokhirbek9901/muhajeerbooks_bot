@@ -391,6 +391,7 @@ def _ensure_bot_profile_photo(state_directory):
         checksum = hashlib.sha256(picture).hexdigest()
         marker = Path(state_directory) / ".muhajeer-bot-avatar-sha256"
         if marker.exists() and marker.read_text(encoding="ascii").strip() == checksum:
+            print("Telegram bot profile photo: logo already configured", flush=True)
             return
         boundary = "MuhajeerAvatar" + uuid.uuid4().hex
         profile = json.dumps({"type": "static", "photo": "attach://avatar"})
@@ -411,7 +412,7 @@ def _ensure_bot_profile_photo(state_directory):
         if result.get("ok") is not True or result.get("result") is not True:
             raise RuntimeError("Telegram rejected the profile image")
         marker.write_text(checksum + "\n", encoding="ascii")
-        _LOG.info("Telegram bot profile photo set to Muhajeer logo")
+        print("Telegram bot profile photo: Muhajeer logo updated", flush=True)
     except Exception as exc:
         _LOG.warning("Telegram bot profile photo update failed: %s", type(exc).__name__)
 
