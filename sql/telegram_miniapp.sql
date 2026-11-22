@@ -61,6 +61,7 @@ BEGIN
       SELECT id,title,author,category,left(description,900) AS description,stock,
         coalesce(language_code,'uz') AS language,
         coalesce(nullif(thumbnail_url,''),image_url) AS cover,
+        coalesce(image_urls,'{}'::text[]) AS images,
         coalesce(catalog_pin_rank,0)>0 AS pinned, created_at,
         round(price*(100-(CASE WHEN discount_percent>0 AND
           (discount_ends_at IS NULL OR discount_ends_at>now())
@@ -73,9 +74,9 @@ BEGIN
           OR strpos(lower(coalesce(author,'')),lower(v_search))>0
           OR strpos(lower(coalesce(category,'')),lower(v_search))>0)
       ORDER BY pinned DESC,created_at DESC,id
-      LIMIT 25 OFFSET v_offset
+      LIMIT 1000 OFFSET v_offset
     ) b;
-    RETURN jsonb_build_object('books', v_rows, 'more', jsonb_array_length(v_rows)>24);
+    RETURN jsonb_build_object('books', v_rows, 'more', false);
   END IF;
 
   IF p_action = 'orders' THEN
