@@ -71,6 +71,27 @@ class ChannelRecommendationsTest(unittest.TestCase):
         self.assertIsNone(self.settings.slot(TUESDAY.replace(day=25)))
         self.assertTrue(self.settings.slot(FRIDAY))
 
+    def test_every_other_day_and_daily_schedules(self):
+        settings = {
+            "MUHAJEER_RECOMMEND_CHANNEL": "@showcase_books",
+            "MUHAJEER_RECOMMEND_FIRST_DAY": "2026-11-24",
+            "MUHAJEER_RECOMMEND_INTERVAL_DAYS": "2",
+        }
+        alternate = recommendations.Settings.from_env(settings)
+        self.assertIsNone(alternate.slot(TUESDAY.replace(day=22)))
+        self.assertTrue(alternate.slot(TUESDAY))
+        self.assertIsNone(alternate.slot(TUESDAY.replace(day=25)))
+        self.assertTrue(alternate.slot(TUESDAY.replace(day=26)))
+        self.assertIsNone(alternate.slot(FRIDAY))
+        settings["MUHAJEER_RECOMMEND_INTERVAL_DAYS"] = "1"
+        self.assertTrue(recommendations.Settings.from_env(settings).slot(FRIDAY))
+
+    def test_shop_link_opens_main_mini_app_only_when_enabled(self):
+        bot = {"username": "muhajeer_test_bot", "has_main_web_app": True}
+        self.assertEqual(recommendations._bot_link(bot), "https://t.me/muhajeer_test_bot?startapp")
+        bot["has_main_web_app"] = False
+        self.assertEqual(recommendations._bot_link(bot), "https://t.me/muhajeer_test_bot")
+
     def test_does_not_publish_without_channel_permission(self):
         for telegram in (Telegram(allowed=False), Telegram(kind="supergroup")):
             with self.subTest(telegram=telegram), self.assertRaises((PermissionError, ValueError)):

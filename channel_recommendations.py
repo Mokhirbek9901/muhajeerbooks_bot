@@ -1,7 +1,7 @@
 """Scheduled Telegram channel posts sourced from the shared storefront catalog."""
 
 from dataclasses import dataclass
-from datetime import datetime, time as wall_time, timedelta
+from datetime import date, datetime, time as wall_time, timedelta
 import fcntl
 import json
 import logging
@@ -29,6 +29,8 @@ class Settings:
     channel: str
     days: frozenset
     publish_at: wall_time
+    interval_days: int = 0
+    first_day: date | None = None
 
     @classmethod
     def from_env(cls, environment):
@@ -50,13 +52,22 @@ class Settings:
         clock = environment.get("MUHAJEER_RECOMMEND_TIME", "19:00").strip()
         if not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", clock):
             raise ValueError("Post vaqti HH:MM formatida bo‘lishi kerak")
-        return cls(channel, days, wall_time.fromisoformat(clock))
+        interval = int(environment.get("MUHAJEER_RECOMMEND_INTERVAL_DAYS", "0"))
+        if interval not in (0, 1, 2):
+            raise ValueError("Post oralig‘i noto‘g‘ri")
+        first = date.fromisoformat(environment["MUHAJEER_RECOMMEND_FIRST_DAY"]) if interval else None
+        return cls(channel, days, wall_time.fromisoformat(clock), interval, first)
 
     def slot(self, now):
         now = now.astimezone(_KOREA)
         start = now.replace(hour=self.publish_at.hour, minute=self.publish_at.minute,
                             second=0, microsecond=0)
-        if now.weekday() in self.days and start <= now < start + timedelta(minutes=60):
+        if self.interval_days:
+            elapsed = (now.date() - self.first_day).days
+            scheduled = elapsed >= 0 and elapsed % self.interval_days == 0
+        else:
+            scheduled = now.weekday() in self.days
+        if scheduled and start <= now < start + timedelta(minutes=60):
             return start.isoformat()
         return None
 
@@ -68,8 +79,16 @@ def _result(api, method, params):
     return result["result"]
 
 
-def _destination(api, channel):
-    bot = _result(api, "getMe", {})
+def _bot_link(bot):
+    username = bot.get("username", "")
+    if not _USERNAME.fullmatch(username):
+        raise ValueError("Bot manzili topilmadi")
+    endpoint = "https://t.me/" + username
+    return endpoint + "?startapp" if bot.get("has_main_web_app") is True else endpoint
+
+
+def _destination(api, channel, bot=None):
+    bot = bot or _result(api, "getMe", {})
     chat = _result(api, "getChat", {"chat_id": channel})
     if chat.get("type") != "channel":
         raise ValueError("Tavsiyalar uchun Telegram kanali kerak")
@@ -79,10 +98,7 @@ def _destination(api, channel):
     )
     if not can_post:
         raise PermissionError("Botga kanalga post yuborish huquqi kerak")
-    username = bot.get("username", "")
-    if not _USERNAME.fullmatch(username):
-        raise ValueError("Bot manzili topilmadi")
-    return chat["id"], "https://t.me/" + username
+    return chat["id"], _bot_link(bot)
 
 
 def _eligible(book):
@@ -214,7 +230,9 @@ def start(api, catalog, environment, state_directory):
 
     def loop():
         try:
-            _destination(api, settings.channel)
+            bot = _result(api, "getMe", {})
+            print("Telegram channel recommendations: shop link " + _bot_link(bot), flush=True)
+            _destination(api, settings.channel, bot)
             print("Telegram channel recommendations: channel permissions verified", flush=True)
         except (OSError, ValueError, RuntimeError):
             _LOG.warning("Telegram channel recommendations: channel or posting permission unavailable")
