@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import threading
 import time
-from urllib import error, parse, request
+from urllib import error, parse
 import uuid
 
 import channel_recommendations
@@ -195,13 +195,18 @@ def _offset(value):
 def _catalog(user, data):
     search = _short_text(data.get("search", ""), 80, "Qidiruv")
     offset = _offset(data.get("offset", 0))
-    key = (search.casefold(), offset)
+    language = data.get("language", "uz")
+    if language not in ("uz", "en", "ru"):
+        raise MiniAppError("Kitob tili noto‘g‘ri.")
+    key = (language, search.casefold(), offset)
     now = time.monotonic()
     with _LOCK:
         cached = _CATALOG.get(key)
         if cached and cached[0] > now:
             return cached[1]
-    response = _rpc(user, "catalog", {"search": search, "offset": offset})
+    response = _rpc(user, "catalog", {
+        "search": search, "offset": offset, "language": language,
+    })
     result = {"books": response["books"][:24], "more": response["more"]}
     with _LOCK:
         _CATALOG.pop(key, None)
@@ -379,48 +384,10 @@ def serve(handler, token):
     return True
 
 
-
-def _ensure_bot_profile_photo(state_directory):
-    """Set the Muhajeer logo as this bot's Telegram avatar once per image version."""
-    token = os.environ.get("BOT_TOKEN", "").strip()
-    logo = _DIRECTORY / "muhajeer-logo.jpg"
-    if not token or not logo.is_file():
-        return
-    try:
-        picture = logo.read_bytes()
-        checksum = hashlib.sha256(picture).hexdigest()
-        marker = Path(state_directory) / ".muhajeer-bot-avatar-sha256"
-        if marker.exists() and marker.read_text(encoding="ascii").strip() == checksum:
-            print("Telegram bot profile photo: logo already configured", flush=True)
-            return
-        boundary = "MuhajeerAvatar" + uuid.uuid4().hex
-        profile = json.dumps({"type": "static", "photo": "attach://avatar"})
-        body = (
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n{profile}\r\n".encode()
-            + f"--{boundary}\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"muhajeer-logo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".encode()
-            + picture
-            + f"\r\n--{boundary}--\r\n".encode()
-        )
-        req = request.Request(
-            "https://api.telegram.org/bot" + token + "/setMyProfilePhoto",
-            data=body,
-            headers={"Content-Type": "multipart/form-data; boundary=" + boundary},
-            method="POST",
-        )
-        with request.urlopen(req, timeout=20) as response:
-            result = json.loads(response.read())
-        if result.get("ok") is not True or result.get("result") is not True:
-            raise RuntimeError("Telegram rejected the profile image")
-        marker.write_text(checksum + "\n", encoding="ascii")
-        print("Telegram bot profile photo: Muhajeer logo updated", flush=True)
-    except Exception as exc:
-        _LOG.warning("Telegram bot profile photo update failed: %s", type(exc).__name__)
-
-
 def menu_button():
     if not (ENABLE_MENU and _READY.is_set()):
         return None
-    return {"text": "📚 Kitob buyurtma qilish", "web_app": {"url": URL}}
+    return {"text": "Do‘konni ochish", "web_app": {"url": URL}}
 
 
 def start(telegram_api, bank, state_directory):
@@ -438,7 +405,7 @@ def start(telegram_api, bank, state_directory):
                 if ENABLE_MENU:
                     response = telegram_api("setChatMenuButton", {
                         "menu_button": json.dumps({
-                            "type": "web_app", "text": "📚 Kitob buyurtma qilish",
+                            "type": "web_app", "text": "Do‘konni ochish",
                             "web_app": {"url": URL},
                         }),
                     })
@@ -446,8 +413,6 @@ def start(telegram_api, bank, state_directory):
                         raise MiniAppError("Telegram menyusi sozlanmadi.", 503)
                 _READY.set()
                 print("Telegram Mini App: shared catalog ready; menu=" + str(ENABLE_MENU), flush=True)
-                threading.Thread(target=_ensure_bot_profile_photo, args=(state_directory,),
-                                 daemon=True, name="muhajeer-bot-avatar").start()
                 threading.Thread(target=_notice_loop, args=(telegram_api,),
                                  daemon=True, name="mini-app-order-notices").start()
                 channel_recommendations.start(
