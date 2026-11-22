@@ -17,7 +17,10 @@ const copy = {
   en: {
     'Kitoblar': 'Catalog', 'Savatcha': 'Cart', 'Buyurtmalar': 'Orders', 'Profil': 'Profile',
     'Kitob qidirish': 'Search books', 'Qidirish': 'Search', 'Yangilash': 'Refresh',
-    'Hammasi': 'All', 'Kitob topilmadi.': 'No books found.', 'Yana kitoblar': 'More books',
+    'Hammasi': 'All', 'Kitob topilmadi.': 'No books found.',
+    'Barcha kitoblar': 'All books', 'Kategoriya': 'Category', 'Saralash': 'Sort',
+    'Yangi qo‘shilgan': 'Newest', 'Narxi arzon': 'Lowest price', 'Narxi qimmat': 'Highest price',
+    'Nom bo‘yicha': 'Title A–Z', 'ta kitob': 'books', 'Rasmlar': 'Photos',
     'Kitoblar yuklanmoqda…': 'Loading books…', 'Qayta urinish': 'Try again',
     'Savatchaga qo‘shish': 'Add to cart', 'Savatchaga qo‘shildi': 'Added to cart',
     'Qoldiqdan ortiq miqdor tanlandi.': 'The selected quantity exceeds available stock.',
@@ -47,7 +50,10 @@ const copy = {
   ru: {
     'Kitoblar': 'Каталог', 'Savatcha': 'Корзина', 'Buyurtmalar': 'Заказы', 'Profil': 'Профиль',
     'Kitob qidirish': 'Поиск книг', 'Qidirish': 'Найти', 'Yangilash': 'Обновить',
-    'Hammasi': 'Все', 'Kitob topilmadi.': 'Книги не найдены.', 'Yana kitoblar': 'Показать ещё',
+    'Hammasi': 'Все', 'Kitob topilmadi.': 'Книги не найдены.',
+    'Barcha kitoblar': 'Все книги', 'Kategoriya': 'Категория', 'Saralash': 'Сортировка',
+    'Yangi qo‘shilgan': 'Сначала новые', 'Narxi arzon': 'Сначала дешевле', 'Narxi qimmat': 'Сначала дороже',
+    'Nom bo‘yicha': 'По названию', 'ta kitob': 'книг', 'Rasmlar': 'Фотографии',
     'Kitoblar yuklanmoqda…': 'Загрузка книг…', 'Qayta urinish': 'Повторить',
     'Savatchaga qo‘shish': 'Добавить в корзину', 'Savatchaga qo‘shildi': 'Добавлено в корзину',
     'Qoldiqdan ortiq miqdor tanlandi.': 'Выбранное количество превышает остаток.',
@@ -87,7 +93,7 @@ const persisted = readCart();
 let cart = persisted.cart;
 let draftId = persisted.draftId;
 let current = 'books';
-let catalog = {books: [], more: false, search: '', offset: 0, loadedAt: 0};
+let catalog = {books: [], search: '', loadedAt: 0, category: '', sort: 'new'};
 let searchText = '';
 let pending = false;
 let navigation = 0;
@@ -181,7 +187,7 @@ function changePage(page) {
   renderTabs();
   if (page === 'books') {
     if (Date.now() - catalog.loadedAt < 25000) renderCatalog();
-    else loadCatalog(catalog.search, 0);
+    else loadCatalog(catalog.search);
   }
   if (page === 'cart') renderCart();
   if (page === 'orders') loadOrders(0);
@@ -203,11 +209,16 @@ function renderTabs() {
   }));
 }
 
-function artwork(book) {
+function bookImages(book) {
+  const values = [book.cover, ...(Array.isArray(book.images) ? book.images : [])];
+  return [...new Set(values.filter(url => typeof url === 'string' && url.startsWith('https://')))];
+}
+
+function artwork(book, source = book.cover) {
   const placeholder = element('div', {class: 'cover placeholder', 'aria-hidden': true}, book.title);
-  if (typeof book.cover !== 'string' || !book.cover.startsWith('https://')) return placeholder;
+  if (typeof source !== 'string' || !source.startsWith('https://')) return placeholder;
   const image = element('img', {
-    class: 'cover', src: book.cover, alt: '', loading: 'lazy', decoding: 'async',
+    class: 'cover', src: source, alt: book.title, loading: 'lazy', decoding: 'async',
     referrerpolicy: 'no-referrer', width: 240, height: 300,
   });
   image.addEventListener('error', () => image.replaceWith(placeholder), {once: true});
@@ -236,7 +247,10 @@ function alterCart(book, change) {
 }
 
 function catalogCard(book) {
-  const heading = button(artwork(book), () => renderBook(book), 'cover-button', {'aria-label': book.title});
+  const images = bookImages(book);
+  const heading = button(
+    [artwork(book), images.length > 1 ? element('span', {class: 'photo-count'}, `▧ ${images.length}`) : null],
+    () => renderBook(book), 'cover-button', {'aria-label': book.title});
   return element('article', {class: 'card product'},
     heading,
     element('div', {class: 'product-info'}, element('h2', {}, book.title),
@@ -252,7 +266,7 @@ function catalogSearch() {
   const input = element('input', {type: 'search', placeholder: 'Kitob qidirish', 'aria-label': 'Kitob qidirish',
     value: searchText, enterkeyhint: 'search', oninput: event => { searchText = event.target.value; }});
   return element('form', {class: 'search', role: 'search',
-    onsubmit: event => { event.preventDefault(); loadCatalog(searchText.trim(), 0); }},
+    onsubmit: event => { event.preventDefault(); loadCatalog(searchText.trim()); }},
     glyph('search'), input, element('button', {type: 'submit', class: 'outline'}, 'Qidirish'));
 }
 
@@ -267,39 +281,73 @@ function languageTabs() {
       if (bookLanguage === code) return;
       bookLanguage = code;
       localStorage.setItem(bookLanguageKey, code);
-      catalog = {...catalog, books: [], offset: 0, loadedAt: 0};
-      loadCatalog('', 0);
+      catalog = {...catalog, books: [], loadedAt: 0, category: ''};
+      loadCatalog('');
     }, 'language-tab', {'aria-selected': bookLanguage === code ? 'true' : 'false'})));
 }
 
 function catalogHeading() {
   return element('div', {class: 'row page-heading'}, element('h1', {}, 'Kitoblar'),
-    button('Yangilash', () => loadCatalog(catalog.search, 0), 'quiet'));
+    button('Yangilash', () => loadCatalog(catalog.search), 'quiet'));
+}
+
+function catalogControls() {
+  const categories = [...new Set(catalog.books.map(book => book.category).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const category = element('select', {'aria-label': t('Kategoriya'), onchange: event => {
+    catalog.category = event.target.value;
+    renderCatalog();
+  }}, element('option', {value: ''}, 'Barcha kitoblar'),
+  ...categories.map(value => element('option', {value}, value)));
+  category.value = catalog.category;
+  const sort = element('select', {'aria-label': t('Saralash'), onchange: event => {
+    catalog.sort = event.target.value;
+    renderCatalog();
+  }},
+  element('option', {value: 'new'}, 'Yangi qo‘shilgan'),
+  element('option', {value: 'cheap'}, 'Narxi arzon'),
+  element('option', {value: 'expensive'}, 'Narxi qimmat'),
+  element('option', {value: 'title'}, 'Nom bo‘yicha'));
+  sort.value = catalog.sort;
+  return element('div', {class: 'catalog-controls'},
+    labeled('Kategoriya', category), labeled('Saralash', sort));
+}
+
+function visibleCatalogBooks() {
+  const result = catalog.category
+    ? catalog.books.filter(book => book.category === catalog.category)
+    : [...catalog.books];
+  if (catalog.sort === 'cheap') result.sort((a, b) => a.price - b.price);
+  else if (catalog.sort === 'expensive') result.sort((a, b) => b.price - a.price);
+  else if (catalog.sort === 'title') result.sort((a, b) => a.title.localeCompare(b.title));
+  else result.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+    || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  return result;
 }
 
 function renderCatalog() {
+  const visible = visibleCatalogBooks();
   const body = stack(catalogHeading(), catalogSearch(), languageTabs(),
+    catalogControls(),
     catalog.search ? element('div', {class: 'filters'},
-      button('Hammasi', () => loadCatalog('', 0), 'chip'),
+      button('Hammasi', () => loadCatalog(''), 'chip'),
       element('span', {class: 'status'}, '“' + catalog.search + '” natijalari')) : null,
-    catalog.books.length ? element('div', {class: 'grid'}, ...catalog.books.map(catalogCard))
+    small(`${number.format(visible.length)} ${t('ta kitob')}`, 'catalog-count'),
+    visible.length ? element('div', {class: 'grid'}, ...visible.map(catalogCard))
       : small('Kitob topilmadi.', 'status'),
-    catalog.more ? button('Yana kitoblar', event => loadCatalog(catalog.search, catalog.offset + 24, event.currentTarget), 'outline load-more') : null,
   );
   display(body);
 }
 
-async function loadCatalog(search, offset, moreButton) {
+async function loadCatalog(search) {
   const request = ++navigation;
   searchText = search;
-  if (moreButton) moreButton.disabled = true;
-  else display(stack(catalogHeading(), catalogSearch(), small('Kitoblar yuklanmoqda…', 'status')));
+  display(stack(catalogHeading(), catalogSearch(), languageTabs(), small('Kitoblar yuklanmoqda…', 'status')));
   try {
-    const result = await api('catalog', {search, offset, language: bookLanguage});
+    const result = await api('catalog', {search, language: bookLanguage});
     if (current !== 'books' || request !== navigation) return;
-    const combined = offset > 0 ? [...catalog.books, ...result.books] : result.books;
-    const books = [...new Map(combined.map(book => [book.id, book])).values()];
-    catalog = {books, more: result.more, search, offset, loadedAt: offset === 0 ? Date.now() : catalog.loadedAt};
+    const books = [...new Map(result.books.map(book => [book.id, book])).values()];
+    catalog = {...catalog, books, search, loadedAt: Date.now()};
     if (cart.length) {
       const refreshed = new Map(result.books.map(book => [book.id, book]));
       let changed = false;
@@ -315,7 +363,7 @@ async function loadCatalog(search, offset, moreButton) {
   } catch (failure) {
     if (current !== 'books' || request !== navigation) return;
     display(stack(catalogHeading(), catalogSearch(), small(failure.message, 'error'),
-      button('Qayta urinish', () => loadCatalog(search, 0))));
+      button('Qayta urinish', () => loadCatalog(search))));
   }
 }
 
@@ -324,10 +372,37 @@ function renderBook(book) {
   navigation++;
   renderTabs();
   window.scrollTo(0, 0);
+  const images = bookImages(book);
+  let selectedImage = 0;
+  const gallery = element('div', {class: 'detail-gallery'});
+  const redrawGallery = () => {
+    const countLabel = element('span', {class: 'gallery-count'}, `${selectedImage + 1} / ${images.length}`);
+    const track = element('div', {class: 'gallery-track'},
+      ...(images.length ? images : [null]).map((source, index) =>
+        element('div', {class: 'gallery-slide', 'aria-hidden': index === selectedImage ? 'false' : 'true'}, artwork(book, source))));
+    let scrollFrame = 0;
+    track.addEventListener('scroll', () => {
+      cancelAnimationFrame(scrollFrame);
+      scrollFrame = requestAnimationFrame(() => {
+        if (!track.clientWidth || images.length < 2) return;
+        selectedImage = Math.max(0, Math.min(images.length - 1,
+          Math.round(track.scrollLeft / track.clientWidth)));
+        countLabel.textContent = `${selectedImage + 1} / ${images.length}`;
+      });
+    }, {passive: true});
+    track.scrollLeft = selectedImage * track.clientWidth;
+    gallery.replaceChildren(track,
+      images.length > 1 ? element('div', {class: 'gallery-footer'},
+        button('‹', () => { selectedImage = (selectedImage - 1 + images.length) % images.length; redrawGallery(); }, 'gallery-arrow', {'aria-label': 'Oldingi rasm'}),
+        countLabel,
+        button('›', () => { selectedImage = (selectedImage + 1) % images.length; redrawGallery(); }, 'gallery-arrow', {'aria-label': 'Keyingi rasm'})) : null);
+    requestAnimationFrame(() => { track.scrollLeft = selectedImage * track.clientWidth; });
+  };
+  redrawGallery();
   display(stack(
     button('‹ Kitoblar', () => changePage('books'), 'quiet back'),
     element('article', {class: 'card book-detail'},
-      element('div', {class: 'detail-stage'}, element('div', {class: 'detail-cover'}, artwork(book))),
+      element('div', {class: 'detail-stage'}, gallery),
       element('div', {class: 'stack detail-info'},
         element('h1', {}, book.title),
         book.author || book.category ? small([book.author, book.category].filter(Boolean).join(' · ')) : null,
