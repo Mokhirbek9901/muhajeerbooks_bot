@@ -43,6 +43,7 @@ DECLARE
   v_rows jsonb;
   v_order_data jsonb;
   v_search text := left(btrim(coalesce(p_data->>'search','')),80);
+  v_language text := lower(coalesce(nullif(p_data->>'language',''),'uz'));
   v_offset integer;
 BEGIN
   IF p_user IS NULL OR p_user < 1 OR p_user > 4503599627370495 THEN
@@ -50,11 +51,15 @@ BEGIN
   END IF;
 
   IF p_action = 'catalog' THEN
+    IF v_language NOT IN ('uz','en','ru') THEN
+      RAISE EXCEPTION USING MESSAGE = 'Kitob tili noto‘g‘ri';
+    END IF;
     v_offset := greatest(0,least(10000,coalesce((p_data->>'offset')::integer,0)));
     SELECT coalesce(jsonb_agg(to_jsonb(b)
       ORDER BY b.pinned DESC, b.created_at DESC, b.id), '[]'::jsonb) INTO v_rows
     FROM (
       SELECT id,title,author,category,left(description,900) AS description,stock,
+        coalesce(language_code,'uz') AS language,
         coalesce(nullif(thumbnail_url,''),image_url) AS cover,
         coalesce(catalog_pin_rank,0)>0 AS pinned, created_at,
         round(price*(100-(CASE WHEN discount_percent>0 AND
@@ -63,6 +68,7 @@ BEGIN
       FROM public.books
       WHERE is_active AND catalog_archived_at IS NULL AND NOT coalesce(planned,false)
         AND price>0 AND stock>0
+        AND coalesce(language_code,'uz')=v_language
         AND (v_search='' OR strpos(lower(title),lower(v_search))>0
           OR strpos(lower(coalesce(author,'')),lower(v_search))>0
           OR strpos(lower(coalesce(category,'')),lower(v_search))>0)
