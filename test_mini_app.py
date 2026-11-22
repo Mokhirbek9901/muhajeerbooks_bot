@@ -7,7 +7,7 @@ import json
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -65,6 +65,36 @@ def http_app():
 
 
 class MiniAppTest(unittest.TestCase):
+    def test_status_notices_go_to_the_linked_telegram_user(self):
+        accepted = {"id": 1, "lease": "one", "status": "accepted",
+                    "recipient": 79901, "number": 251}
+        shipping = {"id": 2, "lease": "two", "status": "shipping",
+                    "recipient": 79902, "number": 252, "tracking": "TRACK-123"}
+        delivered = []
+
+        def telegram(method, options):
+            delivered.append((method, options))
+            return {"ok": True}
+
+        with patch.object(mini_app, "_rpc", side_effect=[[accepted, shipping], True, True]) as rpc:
+            self.assertEqual(mini_app._process_notices(telegram), 2)
+        self.assertEqual([message["chat_id"] for _, message in delivered], [79901, 79902])
+        self.assertIn("#251 buyurtmangiz qabul qilindi", delivered[0][1]["text"])
+        self.assertIn("#252 buyurtmangiz jo‘natildi", delivered[1][1]["text"])
+        self.assertIn("TRACK-123", delivered[1][1]["text"])
+        rpc.assert_any_call(0, "notice_finish", {"id": 2, "lease": "two", "result": "sent"})
+
+    def test_status_notice_error_handling(self):
+        notice = {"status": "accepted", "recipient": 79901}
+        for failure, expected in (
+            (HTTPError("telegram", 429, "retry", {"Retry-After": "17"}, None),
+             {"result": "retry", "retry_after": 17}),
+            (HTTPError("telegram", 403, "blocked", {}, None), {"result": "unavailable"}),
+            (TimeoutError(), {"result": "uncertain"}),
+        ):
+            with self.subTest(failure=failure):
+                self.assertEqual(mini_app._deliver_notice(Mock(side_effect=failure), notice), expected)
+
     def test_signed_identity_and_time_boundaries(self):
         self.assertEqual(mini_app.telegram_user(signed(), TOKEN), 4211)
         for data in (signed().replace("4211", "6552"), signed(when=time.time() - 90000),

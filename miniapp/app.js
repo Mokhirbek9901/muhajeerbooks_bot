@@ -17,6 +17,7 @@ let searchText = '';
 let pending = false;
 let navigation = 0;
 let toastTimer;
+let messageAccess = Boolean(telegram?.initDataUnsafe?.user?.allows_write_to_pm);
 
 function element(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -274,6 +275,30 @@ function labeled(label, field) {
   return element('label', {}, element('span', {}, label), field);
 }
 
+function notificationPermission() {
+  if (messageAccess || typeof telegram?.requestWriteAccess !== 'function'
+      || telegram.isVersionAtLeast?.('6.9') === false) return null;
+  const caption = element('p', {class: 'muted', role: 'status'},
+    'Buyurtma qabul qilinganda va jo‘natilganda Telegramdan xabar oling.');
+  const allow = button('Telegram xabarlarini yoqish', () => {
+    allow.disabled = true;
+    try {
+      telegram.requestWriteAccess(granted => {
+        allow.disabled = false;
+        messageAccess = granted === true;
+        allow.hidden = messageAccess;
+        caption.textContent = messageAccess
+          ? 'Telegram xabarlari yoqildi.'
+          : 'Buyurtma holatini «Buyurtmalar» bo‘limida ko‘rishingiz mumkin.';
+      });
+    } catch (_) {
+      allow.disabled = false;
+      caption.textContent = 'Buyurtma holatini «Buyurtmalar» bo‘limida ko‘rishingiz mumkin.';
+    }
+  });
+  return stack(caption, allow);
+}
+
 function renderCheckout(previous = {}) {
   current = 'checkout';
   navigation++;
@@ -316,7 +341,7 @@ function renderCheckout(previous = {}) {
       quoteButton.disabled = false;
     }
   }}, labeled('Ism', name), labeled('Telefon raqami', phone), labeled('Yetkazish', delivery),
-    addressLabel, quoteButton, progress);
+    addressLabel, notificationPermission(), quoteButton, progress);
   display(stack(element('div', {class: 'row'}, button('‹ Savatcha', () => { if (!pending) changePage('cart'); }),
     element('h1', {}, 'Buyurtma')), form));
 }

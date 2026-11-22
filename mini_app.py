@@ -135,6 +135,55 @@ def _rpc(user, action, data):
     })
 
 
+def _deliver_notice(telegram_api, notice):
+    label = ("#" + str(notice["number"]) + " buyurtmangiz"
+             if notice.get("number") else "Buyurtmangiz")
+    if notice["status"] == "accepted":
+        message = "✅ " + label + " qabul qilindi."
+    else:
+        message = "📦 " + label + " jo‘natildi."
+        if notice.get("tracking"):
+            message += "\nTrek raqami: " + str(notice["tracking"])
+    try:
+        result = telegram_api("sendMessage", {
+            "chat_id": notice["recipient"],
+            "text": message + "\n\nMuhajeer Books",
+        })
+        return {"result": "sent" if result.get("ok") is True else "failed"}
+    except error.HTTPError as exc:
+        if exc.code == 429:
+            retry_after = (exc.headers or {}).get("Retry-After", "60")
+            return {"result": "retry",
+                    "retry_after": int(retry_after) if retry_after.isdecimal() else 60}
+        if exc.code in (400, 403):
+            return {"result": "unavailable"}
+        return {"result": "uncertain"}
+    except (OSError, ValueError):
+        # A response may be lost after Telegram accepts the message.
+        return {"result": "uncertain"}
+
+
+def _process_notices(telegram_api):
+    batch = _rpc(0, "notice_claim", {})
+    for notice in batch:
+        outcome = _deliver_notice(telegram_api, notice)
+        _rpc(0, "notice_finish", {"id": notice["id"], "lease": notice["lease"], **outcome})
+    return len(batch)
+
+
+def _notice_loop(telegram_api):
+    announced = False
+    while True:
+        try:
+            _process_notices(telegram_api)
+            if not announced:
+                print("Telegram Mini App: status notification queue ready", flush=True)
+                announced = True
+        except Exception as exc:
+            _LOG.warning("Mini App status notifications unavailable: %s", type(exc).__name__)
+        time.sleep(45)
+
+
 def _offset(value):
     if type(value) is not int or not 0 <= value <= 10000:
         raise MiniAppError("Sahifa raqami noto‘g‘ri.")
@@ -357,6 +406,8 @@ def start(telegram_api, bank):
                         raise MiniAppError("Telegram menyusi sozlanmadi.", 503)
                 _READY.set()
                 print("Telegram Mini App: shared catalog ready; menu=" + str(ENABLE_MENU), flush=True)
+                threading.Thread(target=_notice_loop, args=(telegram_api,),
+                                 daemon=True, name="mini-app-order-notices").start()
                 return
             except Exception as exc:
                 _LOG.warning("Mini App readiness check failed: %s", type(exc).__name__)
