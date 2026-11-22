@@ -194,20 +194,21 @@ def _offset(value):
 
 def _catalog(user, data):
     search = _short_text(data.get("search", ""), 80, "Qidiruv")
-    offset = _offset(data.get("offset", 0))
     language = data.get("language", "uz")
     if language not in ("uz", "en", "ru"):
         raise MiniAppError("Kitob tili noto‘g‘ri.")
-    key = (language, search.casefold(), offset)
+    key = (language, search.casefold())
     now = time.monotonic()
     with _LOCK:
         cached = _CATALOG.get(key)
         if cached and cached[0] > now:
             return cached[1]
     response = _rpc(user, "catalog", {
-        "search": search, "offset": offset, "language": language,
+        "search": search, "offset": 0, "language": language,
     })
-    result = {"books": response["books"][:24], "more": response["more"]}
+    # The Mini App intentionally receives the complete in-stock catalog. The
+    # client filters and sorts it instantly, without a confusing “more” step.
+    result = {"books": response["books"][:1000], "more": False}
     with _LOCK:
         _CATALOG.pop(key, None)
         _CATALOG[key] = (now + 25, result)
