@@ -6,6 +6,9 @@ const tabs = document.getElementById('tabs');
 const toast = document.getElementById('toast');
 const number = new Intl.NumberFormat('en-US');
 const won = amount => '₩' + number.format(amount || 0);
+const POSTAGE = 4000;
+const FREE_POSTAGE_BOOKS = 4;
+const FREE_POSTAGE_TEXT = `${FREE_POSTAGE_BOOKS} ta kitobdan boshlab pochta bepul.`;
 const names = [['books', 'Kitoblar'], ['cart', 'Savatcha'], ['orders', 'Buyurtmalar']];
 const storageKey = 'muhajeer-mini-cart-' + (telegram?.initDataUnsafe?.user?.id || 'browser');
 const persisted = readCart();
@@ -237,6 +240,7 @@ function renderBook(book) {
         element('h1', {}, book.title),
         book.author || book.category ? small([book.author, book.category].filter(Boolean).join(' · ')) : null,
         element('div', {class: 'row detail-pricing'}, element('strong', {class: 'price'}, won(book.price)), stockBadge(book)),
+        small(`1–${FREE_POSTAGE_BOOKS - 1} ta kitobga pochta ${won(POSTAGE)}. ${FREE_POSTAGE_TEXT}`, 'notice'),
         button('Savatchaga qo‘shish', () => alterCart(book, 1), 'primary'),
         book.description ? element('p', {class: 'detail-text'}, book.description) : null)),
   ));
@@ -252,18 +256,38 @@ function stepper(line) {
     }));
 }
 
+function cartTotals(byPost = true) {
+  let subtotal = 0;
+  let quantity = 0;
+  for (const line of cart) {
+    subtotal += line.book.price * line.quantity;
+    quantity += line.quantity;
+  }
+  const postage = byPost && quantity > 0 && quantity < FREE_POSTAGE_BOOKS ? POSTAGE : 0;
+  return {subtotal, quantity, postage, total: subtotal + postage};
+}
+
+function totalsRows(totals, byPost = true) {
+  return [
+    element('div', {class: 'row'}, 'Kitoblar jami', won(totals.subtotal)),
+    element('div', {class: 'row'}, byPost ? 'Pochta' : 'Olib ketish',
+      totals.postage ? won(totals.postage) : 'Bepul'),
+    element('div', {class: 'row summary'}, 'Jami',
+      element('strong', {class: 'price'}, won(totals.total))),
+  ];
+}
+
 function renderCart() {
-  const amount = cart.reduce((sum, line) => sum + line.book.price * line.quantity, 0);
-  const quantity = cart.reduce((sum, line) => sum + line.quantity, 0);
+  const totals = cartTotals();
   const rows = cart.map(line => element('article', {class: 'card cart-row'}, artwork(line.book),
     element('div', {class: 'stack'}, element('h2', {}, line.book.title),
       element('div', {class: 'row'}, element('span', {class: 'price'}, won(line.book.price * line.quantity)),
         stepper(line)))));
   display(stack(element('div', {class: 'row page-heading'}, element('h1', {}, 'Savatcha'),
-    quantity ? small(quantity + ' dona', 'cart-total') : null), ...rows,
-    cart.length ? element('p', {class: 'notice'}, '4 ta kitobdan boshlab bepul pochta shartlari buyurtmada tekshiriladi.') : small('Savatcha bo‘sh.', 'status'),
+    totals.quantity ? small(totals.quantity + ' dona', 'cart-total') : null), ...rows,
+    cart.length ? small(FREE_POSTAGE_TEXT, 'notice') : small('Savatcha bo‘sh.', 'status'),
     cart.length ? element('section', {class: 'card stack cart-summary'},
-      element('div', {class: 'row'}, 'Kitoblar jami', element('strong', {class: 'price'}, won(amount))),
+      ...totalsRows(totals),
       button('Buyurtma berish', () => renderCheckout(), 'primary')) : button('Kitoblarni ko‘rish', () => changePage('books'), 'primary')));
 }
 
@@ -312,10 +336,13 @@ function renderCheckout(previous = {}) {
     element('option', {value: '경산 직접수령'}, 'Gyeongsan’da olib ketish'));
   if (previous.delivery) delivery.value = previous.delivery;
   const addressLabel = labeled('Manzil', address);
+  const totals = stack();
+  totals.setAttribute('aria-live', 'polite');
   function updateDelivery() {
     const ship = delivery.value === '택배';
     addressLabel.hidden = !ship;
     address.required = ship;
+    totals.replaceChildren(...totalsRows(cartTotals(ship), ship));
   }
   delivery.addEventListener('change', updateDelivery);
   updateDelivery();
@@ -341,7 +368,7 @@ function renderCheckout(previous = {}) {
       quoteButton.disabled = false;
     }
   }}, labeled('Ism', name), labeled('Telefon raqami', phone), labeled('Yetkazish', delivery),
-    addressLabel, notificationPermission(), quoteButton, progress);
+    addressLabel, totals, notificationPermission(), quoteButton, progress);
   display(stack(element('div', {class: 'row'}, button('‹ Savatcha', () => { if (!pending) changePage('cart'); }),
     element('h1', {}, 'Buyurtma')), form));
 }
