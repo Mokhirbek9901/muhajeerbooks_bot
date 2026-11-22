@@ -124,20 +124,33 @@ h2 { font-size: .98rem; line-height: 1.24; }
   border-radius: 15px 15px 0 0;
 }
 .cover-button:active { transform: scale(.992); }
-.photo-count {
+.photo-dots {
   position: absolute;
-  right: .48rem;
-  bottom: .48rem;
+  left: 50%;
+  bottom: .52rem;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  min-height: 1.55rem;
-  padding: .15rem .42rem;
+  justify-content: center;
+  gap: .26rem;
+  min-height: 1.3rem;
+  padding: .18rem .42rem;
   border-radius: 999px;
-  background: #102f2bd9;
-  color: white;
-  font-size: .7rem;
-  font-weight: 800;
-  box-shadow: 0 2px 8px #0003;
+  border: 1px solid #fff9;
+  background: #fffdf4e8;
+  box-shadow: 0 2px 8px #2c2a2026;
+}
+.photo-dots i {
+  display: block;
+  width: .35rem;
+  height: .35rem;
+  border-radius: 50%;
+  background: #7d877f;
+}
+.photo-dots i:first-child {
+  width: .42rem;
+  height: .42rem;
+  background: var(--teal);
 }
 .cover-button .cover {
   border-radius: 4px;
