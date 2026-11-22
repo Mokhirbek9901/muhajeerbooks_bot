@@ -8,8 +8,80 @@ const number = new Intl.NumberFormat('en-US');
 const won = amount => '₩' + number.format(amount || 0);
 const POSTAGE = 4000;
 const FREE_POSTAGE_BOOKS = 4;
-const FREE_POSTAGE_TEXT = `${FREE_POSTAGE_BOOKS} ta kitobdan boshlab pochta bepul.`;
-const names = [['books', 'Kitoblar'], ['cart', 'Savatcha'], ['orders', 'Buyurtmalar']];
+const languageKey = 'muhajeer-mini-interface-language';
+const bookLanguageKey = 'muhajeer-mini-book-language';
+const languages = [['uz', 'O‘zbekcha'], ['en', 'English'], ['ru', 'Русский']];
+let interfaceLanguage = localStorage.getItem(languageKey) || '';
+let bookLanguage = localStorage.getItem(bookLanguageKey) || interfaceLanguage || 'uz';
+const copy = {
+  en: {
+    'Kitoblar': 'Catalog', 'Savatcha': 'Cart', 'Buyurtmalar': 'Orders', 'Profil': 'Profile',
+    'Kitob qidirish': 'Search books', 'Qidirish': 'Search', 'Yangilash': 'Refresh',
+    'Hammasi': 'All', 'Kitob topilmadi.': 'No books found.', 'Yana kitoblar': 'More books',
+    'Kitoblar yuklanmoqda…': 'Loading books…', 'Qayta urinish': 'Try again',
+    'Savatchaga qo‘shish': 'Add to cart', 'Savatchaga qo‘shildi': 'Added to cart',
+    'Qoldiqdan ortiq miqdor tanlandi.': 'The selected quantity exceeds available stock.',
+    'Savatchaga 50 turdagi kitob qo‘shish mumkin.': 'The cart can contain up to 50 book titles.',
+    'Savatcha bo‘sh.': 'Your cart is empty.', 'Kitoblarni ko‘rish': 'Browse books',
+    'Kitoblar jami': 'Books subtotal', 'Pochta': 'Delivery', 'Olib ketish': 'Pickup',
+    'Bepul': 'Free', 'Jami': 'Total', 'Buyurtma berish': 'Checkout',
+    'Ism': 'Name', 'Telefon raqami': 'Phone number', 'Yetkazish': 'Delivery method',
+    'Pochta orqali': 'Delivery', 'Gyeongsan’da olib ketish': 'Pick up in Gyeongsan',
+    'Manzil': 'Address', 'Jami summani ko‘rish': 'Review total', 'Buyurtma': 'Order',
+    'Buyurtma qabul qilinganda va jo‘natilganda Telegramdan xabar oling.': 'Receive Telegram updates when your order is accepted and shipped.',
+    'Telegram xabarlarini yoqish': 'Enable Telegram notifications',
+    'Telegram xabarlari yoqildi.': 'Telegram notifications are enabled.',
+    'Buyurtma holatini «Buyurtmalar» bo‘limida ko‘rishingiz mumkin.': 'You can track the order in Orders.',
+    'To‘lov': 'Payment', 'Yetkazish': 'Delivery',
+    'To‘lov cheki': 'Payment receipt', 'Chekni yuborish': 'Send receipt',
+    'Summani qayta tekshirish': 'Review total again', 'Hisob raqamini nusxalash': 'Copy bank account',
+    'Hisob raqami nusxalandi': 'Bank account copied', 'Ma’lumotlar': 'Details',
+    'Qabul qilindi': 'Accepted', 'Tayyorlandi': 'Prepared', 'Jo‘natildi': 'Shipped',
+    'Bekor qilindi': 'Cancelled', 'Tekshirilmoqda': 'Under review', 'Kitob': 'Book',
+    'Buyurtma yuborildi': 'Order submitted', 'Buyurtmalarim': 'My orders',
+    'Yuklanmoqda…': 'Loading…', 'Yana buyurtmalar': 'More orders',
+    'Mini App orqali berilgan buyurtmalar shu yerda ko‘rinadi.': 'Orders placed through the Mini App appear here.',
+    'Tilni tanlang': 'Choose your language', 'Davom etish': 'Continue',
+    'Ilova tili': 'App language', 'Saqlash': 'Save', 'Kitob tili': 'Book language',
+  },
+  ru: {
+    'Kitoblar': 'Каталог', 'Savatcha': 'Корзина', 'Buyurtmalar': 'Заказы', 'Profil': 'Профиль',
+    'Kitob qidirish': 'Поиск книг', 'Qidirish': 'Найти', 'Yangilash': 'Обновить',
+    'Hammasi': 'Все', 'Kitob topilmadi.': 'Книги не найдены.', 'Yana kitoblar': 'Показать ещё',
+    'Kitoblar yuklanmoqda…': 'Загрузка книг…', 'Qayta urinish': 'Повторить',
+    'Savatchaga qo‘shish': 'Добавить в корзину', 'Savatchaga qo‘shildi': 'Добавлено в корзину',
+    'Qoldiqdan ortiq miqdor tanlandi.': 'Выбранное количество превышает остаток.',
+    'Savatchaga 50 turdagi kitob qo‘shish mumkin.': 'В корзину можно добавить до 50 наименований.',
+    'Savatcha bo‘sh.': 'Корзина пуста.', 'Kitoblarni ko‘rish': 'Перейти к книгам',
+    'Kitoblar jami': 'Стоимость книг', 'Pochta': 'Доставка', 'Olib ketish': 'Самовывоз',
+    'Bepul': 'Бесплатно', 'Jami': 'Итого', 'Buyurtma berish': 'Оформить заказ',
+    'Ism': 'Имя', 'Telefon raqami': 'Номер телефона', 'Yetkazish': 'Способ доставки',
+    'Pochta orqali': 'Доставка', 'Gyeongsan’da olib ketish': 'Самовывоз в Кёнсане',
+    'Manzil': 'Адрес', 'Jami summani ko‘rish': 'Проверить сумму', 'Buyurtma': 'Заказ',
+    'Buyurtma qabul qilinganda va jo‘natilganda Telegramdan xabar oling.': 'Получайте уведомления в Telegram о принятии и отправке заказа.',
+    'Telegram xabarlarini yoqish': 'Включить уведомления Telegram',
+    'Telegram xabarlari yoqildi.': 'Уведомления Telegram включены.',
+    'Buyurtma holatini «Buyurtmalar» bo‘limida ko‘rishingiz mumkin.': 'Статус заказа доступен в разделе «Заказы».',
+    'To‘lov': 'Оплата', 'Yetkazish': 'Доставка',
+    'To‘lov cheki': 'Квитанция об оплате', 'Chekni yuborish': 'Отправить квитанцию',
+    'Summani qayta tekshirish': 'Проверить сумму ещё раз', 'Hisob raqamini nusxalash': 'Скопировать номер счёта',
+    'Hisob raqami nusxalandi': 'Номер счёта скопирован', 'Ma’lumotlar': 'Данные',
+    'Qabul qilindi': 'Принят', 'Tayyorlandi': 'Подготовлен', 'Jo‘natildi': 'Отправлен',
+    'Bekor qilindi': 'Отменён', 'Tekshirilmoqda': 'На проверке', 'Kitob': 'Книга',
+    'Buyurtma yuborildi': 'Заказ отправлен', 'Buyurtmalarim': 'Мои заказы',
+    'Yuklanmoqda…': 'Загрузка…', 'Yana buyurtmalar': 'Показать ещё',
+    'Mini App orqali berilgan buyurtmalar shu yerda ko‘rinadi.': 'Здесь отображаются заказы из мини-приложения.',
+    'Tilni tanlang': 'Выберите язык', 'Davom etish': 'Продолжить',
+    'Ilova tili': 'Язык приложения', 'Saqlash': 'Сохранить', 'Kitob tili': 'Язык книг',
+  },
+};
+const t = value => copy[interfaceLanguage]?.[value] || value;
+const FREE_POSTAGE_TEXT = () => interfaceLanguage === 'ru'
+  ? 'Бесплатная доставка при заказе от 4 книг.'
+  : interfaceLanguage === 'en' ? 'Free delivery on orders of 4 or more books.'
+  : '4 ta kitobdan boshlab pochta bepul.';
+const tabNames = () => [['books', t('Kitoblar')], ['cart', t('Savatcha')],
+  ['orders', t('Buyurtmalar')], ['profile', t('Profil')]];
 const storageKey = 'muhajeer-mini-cart-' + (telegram?.initDataUnsafe?.user?.id || 'browser');
 const persisted = readCart();
 let cart = persisted.cart;
@@ -30,7 +102,8 @@ function element(tag, attrs = {}, ...children) {
       node.setAttribute(key, value === true ? '' : value);
     }
   }
-  node.append(...children.flat().filter(child => child !== null && child !== undefined));
+  node.append(...children.flat().filter(child => child !== null && child !== undefined)
+    .map(child => typeof child === 'string' ? t(child) : child));
   return node;
 }
 
@@ -54,8 +127,10 @@ function stockBadge(book) {
   const count = book.stock;
   if (!Number.isInteger(count) || count < 0) return null;
   const state = count === 0 ? 'empty' : count <= 3 ? 'low' : 'available';
-  return element('span', {class: 'stock stock--' + state},
-    'Omborda ' + number.format(count) + ' dona');
+  const label = interfaceLanguage === 'ru' ? `В наличии: ${number.format(count)}`
+    : interfaceLanguage === 'en' ? `In stock: ${number.format(count)}`
+    : `Omborda ${number.format(count)} dona`;
+  return element('span', {class: 'stock stock--' + state}, label);
 }
 
 function readCart() {
@@ -110,11 +185,12 @@ function changePage(page) {
   }
   if (page === 'cart') renderCart();
   if (page === 'orders') loadOrders(0);
+  if (page === 'profile') renderLanguageSettings();
 }
 
 function renderTabs() {
   const count = cart.reduce((sum, line) => sum + line.quantity, 0);
-  tabs.replaceChildren(...names.map(([page, title]) => {
+  tabs.replaceChildren(...tabNames().map(([page, title]) => {
     const active = current === page || current === 'book' && page === 'books'
       || current === 'checkout' && page === 'cart';
     return button(
@@ -180,13 +256,29 @@ function catalogSearch() {
     glyph('search'), input, element('button', {type: 'submit', class: 'outline'}, 'Qidirish'));
 }
 
+function languageTabs() {
+  const labels = interfaceLanguage === 'ru'
+    ? {uz: 'Узбекский', en: 'Английский', ru: 'Русский'}
+    : interfaceLanguage === 'en'
+      ? {uz: 'Uzbek', en: 'English', ru: 'Russian'}
+      : {uz: 'O‘zbekcha', en: 'Inglizcha', ru: 'Ruscha'};
+  return element('div', {class: 'language-tabs', role: 'tablist', 'aria-label': t('Kitob tili')},
+    ...languages.map(([code]) => button(labels[code], () => {
+      if (bookLanguage === code) return;
+      bookLanguage = code;
+      localStorage.setItem(bookLanguageKey, code);
+      catalog = {...catalog, books: [], offset: 0, loadedAt: 0};
+      loadCatalog('', 0);
+    }, 'language-tab', {'aria-selected': bookLanguage === code ? 'true' : 'false'})));
+}
+
 function catalogHeading() {
   return element('div', {class: 'row page-heading'}, element('h1', {}, 'Kitoblar'),
     button('Yangilash', () => loadCatalog(catalog.search, 0), 'quiet'));
 }
 
 function renderCatalog() {
-  const body = stack(catalogHeading(), catalogSearch(),
+  const body = stack(catalogHeading(), catalogSearch(), languageTabs(),
     catalog.search ? element('div', {class: 'filters'},
       button('Hammasi', () => loadCatalog('', 0), 'chip'),
       element('span', {class: 'status'}, '“' + catalog.search + '” natijalari')) : null,
@@ -203,7 +295,7 @@ async function loadCatalog(search, offset, moreButton) {
   if (moreButton) moreButton.disabled = true;
   else display(stack(catalogHeading(), catalogSearch(), small('Kitoblar yuklanmoqda…', 'status')));
   try {
-    const result = await api('catalog', {search, offset});
+    const result = await api('catalog', {search, offset, language: bookLanguage});
     if (current !== 'books' || request !== navigation) return;
     const combined = offset > 0 ? [...catalog.books, ...result.books] : result.books;
     const books = [...new Map(combined.map(book => [book.id, book])).values()];
@@ -240,7 +332,11 @@ function renderBook(book) {
         element('h1', {}, book.title),
         book.author || book.category ? small([book.author, book.category].filter(Boolean).join(' · ')) : null,
         element('div', {class: 'row detail-pricing'}, element('strong', {class: 'price'}, won(book.price)), stockBadge(book)),
-        small(`1–${FREE_POSTAGE_BOOKS - 1} ta kitobga pochta ${won(POSTAGE)}. ${FREE_POSTAGE_TEXT}`, 'notice'),
+        small(interfaceLanguage === 'ru'
+          ? `Доставка для 1–3 книг — ${won(POSTAGE)}. ${FREE_POSTAGE_TEXT()}`
+          : interfaceLanguage === 'en'
+            ? `Delivery for 1–3 books is ${won(POSTAGE)}. ${FREE_POSTAGE_TEXT()}`
+            : `1–3 ta kitobga pochta ${won(POSTAGE)}. ${FREE_POSTAGE_TEXT()}`, 'notice'),
         button('Savatchaga qo‘shish', () => alterCart(book, 1), 'primary'),
         book.description ? element('p', {class: 'detail-text'}, book.description) : null)),
   ));
@@ -285,7 +381,7 @@ function renderCart() {
         stepper(line)))));
   display(stack(element('div', {class: 'row page-heading'}, element('h1', {}, 'Savatcha'),
     totals.quantity ? small(totals.quantity + ' dona', 'cart-total') : null), ...rows,
-    cart.length ? small(FREE_POSTAGE_TEXT, 'notice') : small('Savatcha bo‘sh.', 'status'),
+    cart.length ? small(FREE_POSTAGE_TEXT(), 'notice') : small('Savatcha bo‘sh.', 'status'),
     cart.length ? element('section', {class: 'card stack cart-summary'},
       ...totalsRows(totals),
       button('Buyurtma berish', () => renderCheckout(), 'primary')) : button('Kitoblarni ko‘rish', () => changePage('books'), 'primary')));
@@ -483,11 +579,67 @@ async function loadOrders(offset, existing = [], moreButton) {
   }
 }
 
+function languageChoice(selected, onChange) {
+  return element('div', {class: 'language-choices'},
+    ...languages.map(([code, label]) => element('button', {
+      type: 'button', class: 'language-choice', onclick: () => onChange(code),
+      'aria-pressed': selected === code ? 'true' : 'false',
+    }, element('span', {class: 'radio', 'aria-hidden': 'true'}), label)));
+}
+
+function renderOnboarding() {
+  current = 'onboarding';
+  tabs.hidden = true;
+  let selected = interfaceLanguage || 'uz';
+  const choices = element('div');
+  const redraw = () => choices.replaceChildren(languageChoice(selected, code => {
+    selected = code;
+    redraw();
+  }));
+  redraw();
+  display(element('section', {class: 'language-page'},
+    element('img', {class: 'language-logo', src: './muhajeer-logo.jpg', width: 86, height: 86, alt: ''}),
+    element('strong', {class: 'language-brand'}, 'Muhajeer Books'),
+    element('h1', {}, 'Tilni tanlang'), choices,
+    button('Davom etish', () => {
+      interfaceLanguage = selected;
+      bookLanguage = selected;
+      localStorage.setItem(languageKey, selected);
+      localStorage.setItem(bookLanguageKey, selected);
+      tabs.hidden = false;
+      changePage('books');
+    }, 'primary language-save')));
+}
+
+function renderLanguageSettings() {
+  let selected = interfaceLanguage;
+  const choices = element('div');
+  const redraw = () => choices.replaceChildren(languageChoice(selected, code => {
+    selected = code;
+    redraw();
+  }));
+  redraw();
+  display(element('section', {class: 'language-page settings'},
+    element('h1', {}, 'Ilova tili'), choices,
+    button('Saqlash', () => {
+      interfaceLanguage = selected;
+      localStorage.setItem(languageKey, selected);
+      renderTabs();
+      renderLanguageSettings();
+      showToast(interfaceLanguage === 'ru' ? 'Язык сохранён'
+        : interfaceLanguage === 'en' ? 'Language saved' : 'Til saqlandi');
+    }, 'primary language-save')));
+}
+
 if (telegram?.initData) {
   telegram.ready();
   telegram.expand();
-  tabs.hidden = false;
-  changePage('books');
+  if (interfaceLanguage) {
+    tabs.hidden = false;
+    changePage('books');
+  } else {
+    renderOnboarding();
+  }
 } else {
   display(stack(element('h1', {}, 'Muhajeer Books'),
     small('Do‘konni ochish uchun Telegram botidagi «Do‘konni ochish» tugmasini bosing.', 'status')));
