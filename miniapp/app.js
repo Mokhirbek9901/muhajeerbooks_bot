@@ -4,14 +4,15 @@ const telegram = window.Telegram?.WebApp;
 const view = document.getElementById('view');
 const tabs = document.getElementById('tabs');
 const toast = document.getElementById('toast');
-const won = amount => '₩' + new Intl.NumberFormat('en-US').format(amount || 0);
-const names = [['books','📚','Kitoblar'],['cart','🛒','Savatcha'],['orders','▤','Buyurtmalar']];
+const number = new Intl.NumberFormat('en-US');
+const won = amount => '₩' + number.format(amount || 0);
+const names = [['books', 'Kitoblar'], ['cart', 'Savatcha'], ['orders', 'Buyurtmalar']];
 const storageKey = 'muhajeer-mini-cart-' + (telegram?.initDataUnsafe?.user?.id || 'browser');
 const persisted = readCart();
 let cart = persisted.cart;
 let draftId = persisted.draftId;
 let current = 'books';
-let catalog = {books: [], more: false, search: '', offset: 0, loaded: false};
+let catalog = {books: [], more: false, search: '', offset: 0, loadedAt: 0};
 let searchText = '';
 let pending = false;
 let navigation = 0;
@@ -39,6 +40,18 @@ function small(text, name = 'muted') {
 
 function stack(...children) {
   return element('section', {class: 'stack'}, ...children);
+}
+
+function glyph(name) {
+  return element('span', {class: 'glyph glyph-' + name, 'aria-hidden': 'true'});
+}
+
+function stockBadge(book) {
+  const count = book.stock;
+  if (!Number.isInteger(count) || count < 0) return null;
+  const state = count === 0 ? 'empty' : count <= 3 ? 'low' : 'available';
+  return element('span', {class: 'stock stock--' + state},
+    'Omborda ' + number.format(count) + ' dona');
 }
 
 function readCart() {
@@ -88,8 +101,8 @@ function changePage(page) {
   window.scrollTo(0, 0);
   renderTabs();
   if (page === 'books') {
-    if (catalog.loaded) renderCatalog();
-    else loadCatalog('', 0);
+    if (Date.now() - catalog.loadedAt < 25000) renderCatalog();
+    else loadCatalog(catalog.search, 0);
   }
   if (page === 'cart') renderCart();
   if (page === 'orders') loadOrders(0);
@@ -97,12 +110,13 @@ function changePage(page) {
 
 function renderTabs() {
   const count = cart.reduce((sum, line) => sum + line.quantity, 0);
-  tabs.replaceChildren(...names.map(([page, icon, title]) => {
+  tabs.replaceChildren(...names.map(([page, title]) => {
     const active = current === page || current === 'book' && page === 'books'
       || current === 'checkout' && page === 'cart';
     return button(
-      element('span', {}, element('span', {'aria-hidden': true}, icon),
-        page === 'cart' && count ? title + ' (' + count + ')' : title),
+      element('span', {class: 'tab-content'}, glyph(page),
+        element('span', {class: 'tab-label'}, title),
+        page === 'cart' && count ? element('span', {class: 'cart-count'}, String(count)) : null),
       () => { if (!pending) changePage(page); },
       'tab', {'aria-current': active ? 'page' : null},
     );
@@ -123,7 +137,7 @@ function artwork(book) {
 function alterCart(book, change) {
   const found = cart.find(line => line.book.id === book.id);
   const count = (found?.quantity || 0) + change;
-  if (count > book.stock || count > 100) {
+  if (change > 0 && (count > book.stock || count > 100)) {
     showToast('Qoldiqdan ortiq miqdor tanlandi.');
     return;
   }
@@ -142,30 +156,39 @@ function alterCart(book, change) {
 }
 
 function catalogCard(book) {
+  const heading = button(artwork(book), () => renderBook(book), 'cover-button', {'aria-label': book.title});
   return element('article', {class: 'card product'},
-    button(artwork(book), () => renderBook(book), 'cover-button', {'aria-label': book.title}),
-    element('h2', {}, book.title),
-    element('div', {class: 'row'}, element('span', {class: 'price'}, won(book.price)),
-      button('+', () => alterCart(book, 1), 'icon', {'aria-label': book.title + ' savatchaga qo‘shish'})),
+    heading,
+    element('div', {class: 'product-info'}, element('h2', {}, book.title),
+      stockBadge(book),
+      element('div', {class: 'product-actions'},
+        element('span', {class: 'price'}, won(book.price)),
+        button('+', () => alterCart(book, 1), 'icon add',
+          {'aria-label': book.title + ' savatchaga qo‘shish'}))),
   );
 }
 
 function catalogSearch() {
   const input = element('input', {type: 'search', placeholder: 'Kitob qidirish', 'aria-label': 'Kitob qidirish',
     value: searchText, enterkeyhint: 'search', oninput: event => { searchText = event.target.value; }});
-  return element('form', {class: 'inline-form',
+  return element('form', {class: 'search', role: 'search',
     onsubmit: event => { event.preventDefault(); loadCatalog(searchText.trim(), 0); }},
-    input, element('button', {type: 'submit', class: 'outline'}, 'Qidirish'));
+    glyph('search'), input, element('button', {type: 'submit', class: 'outline'}, 'Qidirish'));
+}
+
+function catalogHeading() {
+  return element('div', {class: 'row page-heading'}, element('h1', {}, 'Kitoblar'),
+    button('Yangilash', () => loadCatalog(catalog.search, 0), 'quiet'));
 }
 
 function renderCatalog() {
-  const body = stack(element('h1', {}, 'Kitoblar'), catalogSearch(),
+  const body = stack(catalogHeading(), catalogSearch(),
     catalog.search ? element('div', {class: 'filters'},
       button('Hammasi', () => loadCatalog('', 0), 'chip'),
       element('span', {class: 'status'}, '“' + catalog.search + '” natijalari')) : null,
     catalog.books.length ? element('div', {class: 'grid'}, ...catalog.books.map(catalogCard))
       : small('Kitob topilmadi.', 'status'),
-    catalog.more ? button('Yana kitoblar', event => loadCatalog(catalog.search, catalog.offset + 24, event.currentTarget)) : null,
+    catalog.more ? button('Yana kitoblar', event => loadCatalog(catalog.search, catalog.offset + 24, event.currentTarget), 'outline load-more') : null,
   );
   display(body);
 }
@@ -174,17 +197,28 @@ async function loadCatalog(search, offset, moreButton) {
   const request = ++navigation;
   searchText = search;
   if (moreButton) moreButton.disabled = true;
-  else display(stack(element('h1', {}, 'Kitoblar'), catalogSearch(), small('Kitoblar yuklanmoqda…', 'status')));
+  else display(stack(catalogHeading(), catalogSearch(), small('Kitoblar yuklanmoqda…', 'status')));
   try {
     const result = await api('catalog', {search, offset});
     if (current !== 'books' || request !== navigation) return;
     const combined = offset > 0 ? [...catalog.books, ...result.books] : result.books;
     const books = [...new Map(combined.map(book => [book.id, book])).values()];
-    catalog = {books, more: result.more, search, offset, loaded: true};
+    catalog = {books, more: result.more, search, offset, loadedAt: offset === 0 ? Date.now() : catalog.loadedAt};
+    if (cart.length) {
+      const refreshed = new Map(result.books.map(book => [book.id, book]));
+      let changed = false;
+      for (const line of cart) {
+        if (refreshed.has(line.book.id)) {
+          line.book = refreshed.get(line.book.id);
+          changed = true;
+        }
+      }
+      if (changed) saveCart();
+    }
     renderCatalog();
   } catch (failure) {
     if (current !== 'books' || request !== navigation) return;
-    display(stack(element('h1', {}, 'Kitoblar'), catalogSearch(), small(failure.message, 'error'),
+    display(stack(catalogHeading(), catalogSearch(), small(failure.message, 'error'),
       button('Qayta urinish', () => loadCatalog(search, 0))));
   }
 }
@@ -195,14 +229,15 @@ function renderBook(book) {
   renderTabs();
   window.scrollTo(0, 0);
   display(stack(
-    element('div', {class: 'row'}, button('‹ Ortga', () => changePage('books')),
-      element('h1', {}, book.title)),
-    element('div', {class: 'detail-cover'}, artwork(book)),
-    small(book.author || book.category || ''),
-    element('div', {class: 'row'}, element('strong', {class: 'price'}, won(book.price)),
-      element('span', {class: 'phase'}, 'Omborda bor')),
-    book.description ? element('p', {class: 'detail-text'}, book.description) : null,
-    button('Savatchaga qo‘shish', () => alterCart(book, 1), 'primary'),
+    button('‹ Kitoblar', () => changePage('books'), 'quiet back'),
+    element('article', {class: 'card book-detail'},
+      element('div', {class: 'detail-stage'}, element('div', {class: 'detail-cover'}, artwork(book))),
+      element('div', {class: 'stack detail-info'},
+        element('h1', {}, book.title),
+        book.author || book.category ? small([book.author, book.category].filter(Boolean).join(' · ')) : null,
+        element('div', {class: 'row detail-pricing'}, element('strong', {class: 'price'}, won(book.price)), stockBadge(book)),
+        button('Savatchaga qo‘shish', () => alterCart(book, 1), 'primary'),
+        book.description ? element('p', {class: 'detail-text'}, book.description) : null)),
   ));
 }
 
@@ -210,19 +245,25 @@ function stepper(line) {
   return element('div', {class: 'stepper'},
     button('−', () => alterCart(line.book, -1), 'icon', {'aria-label': 'Bittaga kamaytirish'}),
     element('span', {}, String(line.quantity)),
-    button('+', () => alterCart(line.book, 1), 'icon', {'aria-label': 'Bittaga ko‘paytirish'}));
+    button('+', () => alterCart(line.book, 1), 'icon', {
+      'aria-label': 'Bittaga ko‘paytirish',
+      disabled: line.quantity >= line.book.stock || line.quantity >= 100,
+    }));
 }
 
 function renderCart() {
   const amount = cart.reduce((sum, line) => sum + line.book.price * line.quantity, 0);
+  const quantity = cart.reduce((sum, line) => sum + line.quantity, 0);
   const rows = cart.map(line => element('article', {class: 'card cart-row'}, artwork(line.book),
     element('div', {class: 'stack'}, element('h2', {}, line.book.title),
       element('div', {class: 'row'}, element('span', {class: 'price'}, won(line.book.price * line.quantity)),
         stepper(line)))));
-  display(stack(element('h1', {}, 'Savatcha'), ...rows,
+  display(stack(element('div', {class: 'row page-heading'}, element('h1', {}, 'Savatcha'),
+    quantity ? small(quantity + ' dona', 'cart-total') : null), ...rows,
     cart.length ? element('p', {class: 'notice'}, '4 ta kitobdan boshlab bepul pochta shartlari buyurtmada tekshiriladi.') : small('Savatcha bo‘sh.', 'status'),
-    cart.length ? element('div', {class: 'row summary'}, 'Kitoblar jami', element('strong', {}, won(amount))) : null,
-    cart.length ? button('Buyurtma berish', () => renderCheckout(), 'primary') : button('Kitoblarni ko‘rish', () => changePage('books'), 'primary')));
+    cart.length ? element('section', {class: 'card stack cart-summary'},
+      element('div', {class: 'row'}, 'Kitoblar jami', element('strong', {class: 'price'}, won(amount))),
+      button('Buyurtma berish', () => renderCheckout(), 'primary')) : button('Kitoblarni ko‘rish', () => changePage('books'), 'primary')));
 }
 
 function orderItems() {
