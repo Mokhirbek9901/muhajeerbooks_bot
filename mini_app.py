@@ -420,7 +420,7 @@ def _ensure_bot_profile_photo(state_directory):
 def menu_button():
     if not (ENABLE_MENU and _READY.is_set()):
         return None
-    return {"text": "Do‘konni ochish", "web_app": {"url": URL}}
+    return {"text": "📚 Kitob buyurtma qilish", "web_app": {"url": URL}}
 
 
 def start(telegram_api, bank, state_directory):
@@ -438,7 +438,7 @@ def start(telegram_api, bank, state_directory):
                 if ENABLE_MENU:
                     response = telegram_api("setChatMenuButton", {
                         "menu_button": json.dumps({
-                            "type": "web_app", "text": "Do‘konni ochish",
+                            "type": "web_app", "text": "📚 Kitob buyurtma qilish",
                             "web_app": {"url": URL},
                         }),
                     })
