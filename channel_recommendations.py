@@ -159,7 +159,7 @@ def _post_options(channel, shop_link):
     return {
         "chat_id": channel,
         "reply_markup": json.dumps({"inline_keyboard": [[
-            {"text": "Do‘konni ochish", "url": shop_link}
+            {"text": "📚 Kitob buyurtma qilish", "url": shop_link}
         ]]}, ensure_ascii=False),
     }
 
@@ -187,6 +187,91 @@ def _save(path, data):
         handle.flush()
         os.fsync(handle.fileno())
     temp.replace(path)
+
+
+def publish_order_button(api, settings, state_directory):
+    """Publish one channel order shortcut and pin it when permissions allow.
+
+    Persist the outgoing attempt before sending, so a lost Telegram response
+    cannot silently spam channel subscribers on every deployment.
+    """
+    channel, shop_link = _destination(api, settings.channel)
+    path = Path(state_directory) / "telegram_recommendations.json"
+    with path.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            history = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            history = {}
+        record = history.setdefault(str(channel), {})
+        state = record.get("order_button_v1")
+
+        if state is None:
+            state = {"message_id": None, "pinned": False}
+            record["order_button_v1"] = state
+            _save(path, history)
+            body = (
+                "📚 MUHAJEER BOOKS\n\n"
+                "Sevimli kitoblaringizni Telegram orqali buyurtma qiling!\n\n"
+                "📖 Katalogdan kitob tanlang\n"
+                "🛒 Savatchaga qo‘shing va buyurtma bering\n"
+                "📦 Buyurtma holatini kuzating\n"
+                "🚚 4 ta va undan ko‘p kitobga pochta bepul!\n\n"
+                "👇 Quyidagi tugma orqali do‘konni oching:"
+            )
+            try:
+                sent = _result(api, "sendMessage", {
+                    "chat_id": channel,
+                    "text": body,
+                    "reply_markup": json.dumps({"inline_keyboard": [[
+                        {"text": "📚 Kitob buyurtma qilish", "url": shop_link}
+                    ]]}, ensure_ascii=False),
+                    "disable_notification": "true",
+                })
+            except HTTPError as exc:
+                # Clear state for errors where Telegram explicitly rejected
+                # the message; preserve it when acceptance is uncertain.
+                if 400 <= exc.code < 500 and exc.code not in (408, 429):
+                    del record["order_button_v1"]
+                    _save(path, history)
+                raise
+            state["message_id"] = sent["message_id"]
+            _save(path, history)
+            print("Telegram channel order button: posted message #" +
+                  str(sent["message_id"]), flush=True)
+
+        message_id = state.get("message_id")
+        if not message_id:
+            print("Telegram channel order button: previous delivery unconfirmed; "
+                  "no duplicate post sent", flush=True)
+            return "uncertain"
+        if state.get("pinned"):
+            return "already_pinned"
+
+        me = _result(api, "getMe", {})
+        rights = _result(api, "getChatMember", {
+            "chat_id": channel, "user_id": me["id"]
+        })
+        if not (rights.get("status") == "creator" or
+                rights.get("can_edit_messages") is True):
+            print("Telegram channel order button: posted but not pinned; "
+                  "give bot Edit Messages permission", flush=True)
+            return "posted_without_pin_permission"
+        try:
+            _result(api, "pinChatMessage", {
+                "chat_id": channel,
+                "message_id": message_id,
+                "disable_notification": "true",
+            })
+        except HTTPError as exc:
+            print("Telegram channel order button: pin failed HTTP " +
+                  str(exc.code), flush=True)
+            return "posted_pin_failed"
+        state["pinned"] = True
+        _save(path, history)
+        print("Telegram channel order button: pinned message #" +
+              str(message_id), flush=True)
+        return "pinned"
 
 
 def publish_launch(api, catalog, settings, state_directory, launch):
@@ -299,6 +384,12 @@ def start(api, catalog, environment, state_directory):
             print("Telegram channel recommendations: shop link " + _bot_link(bot), flush=True)
             _destination(api, settings.channel, bot)
             print("Telegram channel recommendations: channel permissions verified", flush=True)
+            try:
+                shortcut = publish_order_button(api, settings, state_directory)
+                print("Telegram channel order button: " + shortcut, flush=True)
+            except (OSError, ValueError, RuntimeError) as exc:
+                print("Telegram channel order button: setup failed (" +
+                      type(exc).__name__ + ")", flush=True)
         except (OSError, ValueError, RuntimeError):
             _LOG.warning("Telegram channel recommendations: channel or posting permission unavailable")
 
