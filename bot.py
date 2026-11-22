@@ -11,6 +11,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import cloud_bridge
 import mini_app
+from miniapp import welcome
 
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
@@ -3703,6 +3704,19 @@ def handle_message(message):
     username = user.get("username", "")
     register_user(chat_id, user)
 
+    if text == "/welcome_link" and is_admin(chat_id):
+        try:
+            invite = welcome.create_request_link(api)
+            send(chat_id, "✅ Kanalga qo‘shilish so‘rovi havolasi:\n" + invite +
+                 "\n\nShu havoladan kirish so‘rovi yuborganlarga bot avtomatik "
+                 "tanishtiruv xabarini yuboradi. Oddiy ommaviy kanal havolasi "
+                 "bilan kirganlarga Telegram cheklovlari amal qiladi.")
+        except Exception as exc:
+            print("Telegram channel welcome: invite-link creation failed:", type(exc).__name__)
+            send(chat_id, "❌ Havola yaratilmadi. Botga kanalda Invite Users "
+                 "administrator ruxsatini bering va qayta urinib ko‘ring.")
+        return
+
     # Mijoz menyusi to‘liq ilovaga ko‘chirildi. Eski tugmalar va
     # avvalgi xabarlardagi buyurtma oqimi endi mijozga ochilmaydi.
     if text == ORDER_APP_BUTTON:
@@ -6805,12 +6819,14 @@ def main():
     load_restock()
     _start_order_notify_server()
     mini_app.start(api, {"name": BANK_NAME, "number": CARD_NUMBER, "owner": CARD_OWNER}, DATA_DIR)
+    welcome.configure(api)
 
     offset = None
 
     while True:
         try:
-            params = {"timeout": 50}
+            params = {"timeout": 50, "allowed_updates": json.dumps(
+                ["message", "callback_query", "chat_join_request", "chat_member"])}
 
             if offset is not None:
                 params["offset"] = offset
@@ -6824,6 +6840,8 @@ def main():
                         handle_message(update["message"])
                     elif "callback_query" in update:
                         handle_callback(update["callback_query"])
+                    elif "chat_join_request" in update or "chat_member" in update:
+                        welcome.handle(update, api, DATA_DIR)
                 except Exception as update_error:
                     # Bitta yaroqsiz xabar qolgan xabarlarni to‘xtatmasin.
                     print("Telegram update qayta ishlash xatosi:", update.get("update_id"), update_error)
