@@ -135,6 +135,21 @@ class ChannelRecommendationsTest(unittest.TestCase):
                          "posted")
         self.assertEqual([method for method, _ in telegram.calls], ["sendPhoto", "sendMessage"])
 
+    def test_launch_posts_announcement_then_book_with_shop_buttons_once(self):
+        telegram = Telegram()
+        entry = book("1", "Inshiroh", cover="https://example.com/book.jpg")
+        launch = {"date": "2026-11-22", "title": "Inshiroh",
+                  "description": "Kitob haqida", "announcement": "Assalomu alaykum"}
+        for _ in range(2):
+            self.assertEqual(recommendations.publish_launch(
+                telegram, catalog([entry]), self.settings, self.directory.name, launch,
+            ), {"announcement": 1, "recommendation": 1})
+        self.assertEqual([method for method, _ in telegram.calls], ["sendMessage", "sendPhoto"])
+        for _, data in telegram.calls:
+            button = json.loads(data["reply_markup"])["inline_keyboard"][0][0]
+            self.assertEqual(button["text"], "Do‘konni ochish")
+            self.assertEqual(button["url"], "https://t.me/muhajeer_test_bot")
+
     def test_explicit_rate_rejection_allows_retry(self):
         telegram = Telegram(failure=("sendMessage", 429))
         books = [book("1", "Inshiroh")]

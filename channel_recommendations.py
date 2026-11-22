@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time as wall_time, timedelta
 import fcntl
+from html import escape
 import json
 import logging
 import os
@@ -154,14 +155,21 @@ def _caption(book):
     return "\n".join(lines)
 
 
-def _post(api, channel, shop_link, book):
-    params = {
+def _post_options(channel, shop_link):
+    return {
         "chat_id": channel,
         "reply_markup": json.dumps({"inline_keyboard": [[
             {"text": "Do‘konni ochish", "url": shop_link}
         ]]}, ensure_ascii=False),
     }
-    caption = _caption(book)
+
+
+def _post(api, channel, shop_link, book, caption=None):
+    params = _post_options(channel, shop_link)
+    if caption is None:
+        caption = _caption(book)
+    else:
+        params["parse_mode"] = "HTML"
     cover = book.get("cover")
     if isinstance(cover, str) and urlsplit(cover).scheme == "https":
         try:
@@ -179,6 +187,62 @@ def _save(path, data):
         handle.flush()
         os.fsync(handle.fileno())
     temp.replace(path)
+
+
+def publish_launch(api, catalog, settings, state_directory, launch):
+    """Publish the approved announcement and recommendation in that order."""
+    channel, shop_link = _destination(api, settings.channel)
+    path = Path(state_directory) / "telegram_recommendations.json"
+    with path.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            history = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            history = {}
+        record = history.setdefault(str(channel), {})
+        messages = record.setdefault("launches", {}).setdefault(launch["date"], {})
+
+        def send_once(kind, send):
+            if kind not in messages:
+                messages[kind] = None
+                _save(path, history)
+                try:
+                    messages[kind] = send()["message_id"]
+                except HTTPError as exc:
+                    if 400 <= exc.code < 500 and exc.code != 408:
+                        del messages[kind]
+                        _save(path, history)
+                    raise
+                _save(path, history)
+            if messages[kind] is None:
+                raise RuntimeError("Telegram launch delivery unconfirmed: " + kind)
+
+        send_once("announcement", lambda: _result(api, "sendMessage", {
+            **_post_options(channel, shop_link),
+            "text": launch["announcement"],
+            "parse_mode": "HTML",
+        }))
+        if "recommendation" not in messages:
+            title = launch["title"]
+            page = catalog({"search": title[:80], "offset": 0})
+            book = next((row for row in page["books"]
+                         if row.get("title") == title and _eligible(row)), None)
+            if not book:
+                return {"announcement": messages["announcement"], "recommendation": "out_of_stock"}
+            author = escape(book.get("author") or "")
+            caption = (
+                "📚 <b>Muhajeer Books tavsiyasi</b>\n\n"
+                f"<b>{escape(title)}</b>" + (f" — {author}" if author else "") +
+                f"\n\n{escape(launch['description'])}\n\n"
+                f"<b>Narxi ₩{book['price']:,} · Omborda {book['stock']} dona</b>"
+            )
+            send_once("recommendation", lambda: _post(api, channel, shop_link, book, caption))
+            recent = [key for key in record.get("recent", []) if key != book["id"]]
+            record["recent"] = (recent + [book["id"]])[-_RECENT_LIMIT:]
+            _save(path, history)
+        else:
+            send_once("recommendation", None)
+        return messages.copy()
 
 
 def publish_slot(api, catalog, settings, state_directory, now):
@@ -200,7 +264,7 @@ def publish_slot(api, catalog, settings, state_directory, now):
         book = _pick_book(catalog, recent, slot)
         # Reserve the slot before Telegram is called so a lost response does not
         # cause a second public post.
-        history[str(channel)] = {"slot": slot, "recent": recent}
+        history[str(channel)] = {**previous, "slot": slot, "recent": recent}
         _save(path, history)
         if not book:
             return "no_stock"
@@ -221,6 +285,7 @@ def publish_slot(api, catalog, settings, state_directory, now):
 def start(api, catalog, environment, state_directory):
     try:
         settings = Settings.from_env(environment)
+        launch = json.loads(environment.get("MUHAJEER_RECOMMEND_LAUNCH", "null"))
     except (ValueError, KeyError):
         _LOG.warning("Telegram channel recommendations: invalid channel or schedule")
         return
@@ -238,10 +303,23 @@ def start(api, catalog, environment, state_directory):
             _LOG.warning("Telegram channel recommendations: channel or posting permission unavailable")
 
         checked_slot = None
+        launch_done = False
         while True:
             now = datetime.now(_KOREA)
             slot = settings.slot(now)
             delay = 55
+            if launch and not launch_done and now.date().isoformat() == launch["date"]:
+                try:
+                    published = publish_launch(api, catalog, settings, state_directory, launch)
+                    print("Telegram recommendation launch: " + json.dumps(published), flush=True)
+                    launch_done = True
+                except HTTPError as exc:
+                    _LOG.warning("Telegram recommendation launch HTTP %s", exc.code)
+                    retry = (exc.headers or {}).get("Retry-After", "")
+                    if exc.code == 429 and retry.isdecimal():
+                        delay = max(delay, min(3600, int(retry)))
+                except (OSError, ValueError, RuntimeError) as exc:
+                    _LOG.warning("Telegram recommendation launch pending: %s", type(exc).__name__)
             if slot is not None and slot != checked_slot:
                 try:
                     outcome = publish_slot(api, catalog, settings, state_directory, now)
