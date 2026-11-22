@@ -10,6 +10,7 @@ import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import cloud_bridge
+import mini_app
 
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
@@ -1847,9 +1848,8 @@ def _send_saved_shipping_entry(chat_id, entry):
 # =========================
 
 def main_menu(chat_id):
-    # Mijozga faqat ilova havolasi ko‘rsatiladi.
-    # Admin panel faqat ADMIN_ID egasiga qoladi.
-    buttons = [[{"text": ORDER_APP_BUTTON}]]
+    storefront = mini_app.menu_button() if int(chat_id) > 0 else None
+    buttons = [[storefront or {"text": ORDER_APP_BUTTON}]]
     if is_admin(chat_id):
         buttons.append([{"text": "⚙️ Admin panel"}])
 
@@ -1860,6 +1860,14 @@ def main_menu(chat_id):
 
 
 def send_app_download_link(chat_id):
+    if int(chat_id) > 0 and mini_app.menu_button():
+        send(
+            chat_id,
+            "📚 Do‘konni ochish tugmasini bosib, Telegram ichida buyurtma bering.\n\n"
+            f"📲 Muhajeer Books ilovasi: {APP_DOWNLOAD_URL}",
+            main_menu(chat_id),
+        )
+        return
     send(
         chat_id,
         "📚 Muhajeer Books ilovasida kitoblarni tanlang va buyurtma bering.\n\n"
@@ -6701,7 +6709,14 @@ class _OrderNotifyHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def do_HEAD(self):
+        if not mini_app.serve(self, TOKEN):
+            self.send_response(404)
+            self.end_headers()
+
     def do_GET(self):
+        if mini_app.serve(self, TOKEN):
+            return
         if self.path == "/health":
             body = b'{"ok":true}'
             self.send_response(200)
@@ -6714,6 +6729,8 @@ class _OrderNotifyHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        if mini_app.serve(self, TOKEN):
+            return
         if self.path != "/notify-order":
             self.send_response(404)
             self.end_headers()
@@ -6767,7 +6784,6 @@ class _OrderNotifyHandler(BaseHTTPRequestHandler):
 def _start_order_notify_server():
     if not ORDER_NOTIFY_SECRET:
         print("ORDER_NOTIFY_SECRET sozlanmagan; tezkor app zakas webhook o‘chiq.")
-        return
     server = ThreadingHTTPServer(("0.0.0.0", ORDER_NOTIFY_PORT), _OrderNotifyHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"Tezkor zakas webhook port {ORDER_NOTIFY_PORT} da tayyor.")
@@ -6788,6 +6804,7 @@ def main():
     load_ratings()
     load_restock()
     _start_order_notify_server()
+    mini_app.start(api, {"name": BANK_NAME, "number": CARD_NUMBER, "owner": CARD_OWNER})
 
     offset = None
 
