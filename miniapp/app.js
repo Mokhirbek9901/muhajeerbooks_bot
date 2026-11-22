@@ -249,7 +249,9 @@ function alterCart(book, change) {
 function catalogCard(book) {
   const images = bookImages(book);
   const heading = button(
-    [artwork(book), images.length > 1 ? element('span', {class: 'photo-count'}, `▧ ${images.length}`) : null],
+    [artwork(book), images.length > 1 ? element('span', {
+      class: 'photo-dots', 'aria-label': `${images.length} ta rasm`,
+    }, ...images.slice(0, 5).map(() => element('i', {}))) : null],
     () => renderBook(book), 'cover-button', {'aria-label': book.title});
   return element('article', {class: 'card product'},
     heading,
