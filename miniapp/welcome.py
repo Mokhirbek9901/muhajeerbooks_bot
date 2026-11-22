@@ -145,10 +145,10 @@ def handle(update, api, state_directory):
         "🛒 Telegram Mini App orqali buyurtma bering.\n"
         "📦 Buyurtmangiz holatini kuzating.\n"
         "🚚 4 ta va undan ko‘p kitobga pochta bepul!\n\n"
-        "👇 Do‘konimizni oching:"
+        "👇 Kitob buyurtma qilish uchun bosing:"
     )
     markup = json.dumps({"inline_keyboard": [[
-        {"text": "🛍 Do‘konni ochish", "url": _SHOP}
+        {"text": "📚 Kitob buyurtma qilish", "url": _SHOP}
     ]]}, ensure_ascii=False)
     try:
         _result(api, "sendMessage", {
