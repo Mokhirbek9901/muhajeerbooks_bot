@@ -65,6 +65,19 @@ def http_app():
 
 
 class MiniAppTest(unittest.TestCase):
+    def test_verified_mini_app_request_records_activity(self):
+        visits = []
+        mini_app._ACTIVITY_HOOK = lambda user, identity: visits.append((user, identity))
+        try:
+            with http_app() as http, patch.object(mini_app, "_rpc", return_value={"orders": [], "more": False}):
+                request = Request(http + "/mini/api/orders", data=b'{}', method="POST",
+                                  headers={"Content-Type": "application/json",
+                                           "X-Telegram-Init-Data": signed(5012)})
+                self.assertEqual(json.load(urlopen(request))["orders"], [])
+            self.assertEqual(visits, [(5012, {"id": 5012})])
+        finally:
+            mini_app._ACTIVITY_HOOK = None
+
     def test_status_notices_go_to_the_linked_telegram_user(self):
         accepted = {"id": 1, "lease": "one", "status": "accepted",
                     "recipient": 79901, "number": 251}

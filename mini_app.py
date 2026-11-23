@@ -40,6 +40,7 @@ _LOCK = threading.Lock()
 _COUNTS = OrderedDict()
 _CATALOG = OrderedDict()
 _BANK = {}
+_ACTIVITY_HOOK = None
 _LOG = logging.getLogger(__name__)
 _UUID = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\Z")
 _PHONE = re.compile(r"[+()0-9 -]{7,32}\Z")
@@ -51,7 +52,7 @@ class MiniAppError(Exception):
         self.status = status
 
 
-def telegram_user(init_data, token, *, now=None):
+def telegram_identity(init_data, token, *, now=None):
     """Authenticate the Telegram account before reading any customer data."""
     denied = MiniAppError("Do‘konni Telegram botidan qayta oching.", 401)
     if not token or not init_data or len(init_data) > 8192:
@@ -71,12 +72,17 @@ def telegram_user(init_data, token, *, now=None):
         current = time.time() if now is None else now
         if not -30 <= current - int(fields["auth_date"]) <= 8 * 60 * 60:
             raise denied
-        user_id = json.loads(fields["user"])["id"]
+        identity = json.loads(fields["user"])
+        user_id = identity["id"]
         if type(user_id) is not int or not 1 <= user_id < 2 ** 52:
             raise denied
-        return user_id
+        return user_id, identity
     except (KeyError, ValueError, TypeError) as exc:
         raise denied from exc
+
+
+def telegram_user(init_data, token, *, now=None):
+    return telegram_identity(init_data, token, now=now)[0]
 
 
 def _limit(user, kind, limit, seconds):
@@ -358,7 +364,13 @@ def serve(handler, token):
         return True
     try:
         handler.connection.settimeout(12)
-        user = telegram_user(handler.headers.get("X-Telegram-Init-Data", ""), token)
+        user, identity = telegram_identity(handler.headers.get("X-Telegram-Init-Data", ""), token)
+        if _ACTIVITY_HOOK:
+            try:
+                _ACTIVITY_HOOK(user, identity)
+            except Exception as exc:
+                # Activity analytics must never block catalog or checkout.
+                _LOG.warning("Mini App activity could not be saved: %s", type(exc).__name__)
         _limit(user, "api", 100, 60)
         action = path.removeprefix("/mini/api/")
         try:
@@ -391,9 +403,11 @@ def menu_button():
     return {"text": "Do‘konni ochish", "web_app": {"url": URL}}
 
 
-def start(telegram_api, bank, state_directory):
+def start(telegram_api, bank, state_directory, activity_hook=None):
     """Check the shared checkout gateway before exposing a new bot menu button."""
+    global _ACTIVITY_HOOK
     _BANK.update(bank)
+    _ACTIVITY_HOOK = activity_hook
 
     def setup():
         for interval in (0, 8, 20):
