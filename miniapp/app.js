@@ -46,6 +46,13 @@ const copy = {
     'Mini App orqali berilgan buyurtmalar shu yerda ko‘rinadi.': 'Orders placed through the Mini App appear here.',
     'Tilni tanlang': 'Choose your language', 'Davom etish': 'Continue',
     'Ilova tili': 'App language', 'Saqlash': 'Save', 'Kitob tili': 'Book language',
+    'Yangi kitoblarni ko‘ring': 'Discover new books', 'Yangi kelganlar birinchi': 'See the latest arrivals first',
+    'Ko‘rish': 'Explore', '4 ta kitobdan bepul pochta': 'Free delivery from 4 books',
+    'Savatchani to‘ldiring va yetkazib berishni tejang': 'Fill your cart and save on delivery',
+    'Savatchaga o‘tish': 'Open cart', 'Tilni tanlang, kitobni toping': 'Choose a language, find your book',
+    'O‘zbekcha, inglizcha va ruscha kataloglar': 'Uzbek, English and Russian catalogs',
+    'Tilni tanlash': 'Choose language', 'Omborda oxirgi nusxalar': 'Last copies in stock',
+    'Tugashidan oldin xarid qiling': 'Order before they sell out', 'Kam qolganlar': 'Low stock',
   },
   ru: {
     'Kitoblar': 'Каталог', 'Savatcha': 'Корзина', 'Buyurtmalar': 'Заказы', 'Profil': 'Профиль',
@@ -79,6 +86,13 @@ const copy = {
     'Mini App orqali berilgan buyurtmalar shu yerda ko‘rinadi.': 'Здесь отображаются заказы из мини-приложения.',
     'Tilni tanlang': 'Выберите язык', 'Davom etish': 'Продолжить',
     'Ilova tili': 'Язык приложения', 'Saqlash': 'Сохранить', 'Kitob tili': 'Язык книг',
+    'Yangi kitoblarni ko‘ring': 'Смотрите новые книги', 'Yangi kelganlar birinchi': 'Новые поступления — в первую очередь',
+    'Ko‘rish': 'Смотреть', '4 ta kitobdan bepul pochta': 'Бесплатная доставка от 4 книг',
+    'Savatchani to‘ldiring va yetkazib berishni tejang': 'Добавьте книги в корзину и сэкономьте на доставке',
+    'Savatchaga o‘tish': 'Открыть корзину', 'Tilni tanlang, kitobni toping': 'Выберите язык и найдите книгу',
+    'O‘zbekcha, inglizcha va ruscha kataloglar': 'Каталоги на узбекском, английском и русском',
+    'Tilni tanlash': 'Выбрать язык', 'Omborda oxirgi nusxalar': 'Последние экземпляры',
+    'Tugashidan oldin xarid qiling': 'Успейте заказать, пока книги в наличии', 'Kam qolganlar': 'Заканчиваются',
   },
 };
 const t = value => copy[interfaceLanguage]?.[value] || value;
@@ -93,11 +107,12 @@ const persisted = readCart();
 let cart = persisted.cart;
 let draftId = persisted.draftId;
 let current = 'books';
-let catalog = {books: [], search: '', loadedAt: 0, category: '', sort: 'new'};
+let catalog = {books: [], search: '', loadedAt: 0, category: '', sort: 'new', stockFilter: false};
 let searchText = '';
 let pending = false;
 let navigation = 0;
 let toastTimer;
+let ctaTimer;
 let messageAccess = Boolean(telegram?.initDataUnsafe?.user?.allows_write_to_pm);
 
 function element(tag, attrs = {}, ...children) {
@@ -177,6 +192,7 @@ function showToast(message) {
 }
 
 function display(component) {
+  clearInterval(ctaTimer);
   view.replaceChildren(component);
 }
 
@@ -303,6 +319,7 @@ function catalogControls() {
     .sort((a, b) => a.localeCompare(b));
   const category = element('select', {'aria-label': t('Kategoriya'), onchange: event => {
     catalog.category = event.target.value;
+    catalog.stockFilter = false;
     renderCatalog();
   }}, element('option', {value: ''}, 'Barcha kitoblar'),
   ...categories.map(value => element('option', {value}, value)));
@@ -321,9 +338,11 @@ function catalogControls() {
 }
 
 function visibleCatalogBooks() {
-  const result = catalog.category
+  let result = catalog.category
     ? catalog.books.filter(book => book.category === catalog.category)
     : [...catalog.books];
+  if (catalog.stockFilter) result = result.filter(book => Number.isInteger(book.stock)
+    && book.stock > 0 && book.stock <= 3);
   if (catalog.sort === 'cheap') result.sort((a, b) => a.price - b.price);
   else if (catalog.sort === 'expensive') result.sort((a, b) => b.price - a.price);
   else if (catalog.sort === 'title') result.sort((a, b) => a.title.localeCompare(b.title));
@@ -332,23 +351,111 @@ function visibleCatalogBooks() {
   return result;
 }
 
+function scrollToCatalog(selector) {
+  requestAnimationFrame(() => document.querySelector(selector)?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'start',
+  }));
+}
+
+function ctaGallery() {
+  const actions = {
+    newest: () => {
+      catalog = {...catalog, search: '', category: '', sort: 'new', stockFilter: false};
+      searchText = '';
+      renderCatalog();
+      scrollToCatalog('.catalog-controls');
+    },
+    cart: () => changePage('cart'),
+    language: () => scrollToCatalog('.language-tabs'),
+    low: () => {
+      catalog = {...catalog, search: '', category: '', sort: 'new', stockFilter: true};
+      searchText = '';
+      renderCatalog();
+      scrollToCatalog('.catalog-count');
+    },
+  };
+  const slidesData = [
+    ['new', 'Yangi kitoblarni ko‘ring', 'Yangi kelganlar birinchi', 'Ko‘rish', 'YANGI', actions.newest],
+    ['delivery', '4 ta kitobdan bepul pochta', 'Savatchani to‘ldiring va yetkazib berishni tejang', 'Savatchaga o‘tish', '4+', actions.cart],
+    ['languages', 'Tilni tanlang, kitobni toping', 'O‘zbekcha, inglizcha va ruscha kataloglar', 'Tilni tanlash', 'UZ · EN · RU', actions.language],
+    ['low', 'Omborda oxirgi nusxalar', 'Tugashidan oldin xarid qiling', 'Kam qolganlar', '1–3', actions.low],
+  ];
+  const track = element('div', {class: 'cta-track'});
+  const dots = element('div', {class: 'cta-dots', 'aria-label': 'CTA gallery'});
+  let active = 0;
+  let scrollTimer;
+  const slides = slidesData.map(([tone, title, text, label, art, action], index) => {
+    const slide = element('article', {class: `cta-slide cta-${tone}`},
+      element('div', {class: 'cta-copy'},
+        element('h2', {}, title), small(text, 'cta-text'),
+        button(label, action, 'cta-action')),
+      element('div', {class: 'cta-art', 'aria-hidden': 'true'}, art));
+    slide.dataset.index = String(index);
+    return slide;
+  });
+  const dotButtons = slides.map((_, index) => button('', () => go(index), 'cta-dot', {
+    'aria-label': `${index + 1} / ${slides.length}`,
+  }));
+  track.append(...slides);
+  dots.append(...dotButtons);
+  const select = index => {
+    active = index;
+    dotButtons.forEach((dot, dotIndex) => dot.setAttribute('aria-current', dotIndex === index ? 'true' : 'false'));
+  };
+  const go = (index, smooth = true) => {
+    const next = (index + slides.length) % slides.length;
+    select(next);
+    track.scrollTo({left: slides[next].offsetLeft - track.offsetLeft,
+      behavior: smooth && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto'});
+  };
+  const start = () => {
+    clearInterval(ctaTimer);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    ctaTimer = setInterval(() => {
+      if (!document.hidden && current === 'books') go(active + 1);
+    }, 4800);
+  };
+  track.addEventListener('pointerdown', () => clearInterval(ctaTimer), {passive: true});
+  track.addEventListener('scroll', () => {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      const nearest = slides.reduce((best, slide, index) =>
+        Math.abs(slide.offsetLeft - track.offsetLeft - track.scrollLeft)
+          < Math.abs(slides[best].offsetLeft - track.offsetLeft - track.scrollLeft) ? index : best, 0);
+      select(nearest);
+      start();
+    }, 140);
+  }, {passive: true});
+  select(0);
+  return {node: element('section', {class: 'cta-gallery', 'aria-label': t('Barcha kitoblar')}, track, dots), start};
+}
+
 function renderCatalog() {
   const visible = visibleCatalogBooks();
-  const body = stack(catalogHeading(), catalogSearch(), languageTabs(),
+  const showCta = !catalog.search && !catalog.category && !catalog.stockFilter;
+  const gallery = showCta ? ctaGallery() : null;
+  const body = stack(catalogHeading(), gallery?.node, catalogSearch(), languageTabs(),
     catalogControls(),
-    catalog.search ? element('div', {class: 'filters'},
-      button('Hammasi', () => loadCatalog(''), 'chip'),
-      element('span', {class: 'status'}, '“' + catalog.search + '” natijalari')) : null,
+    catalog.search || catalog.stockFilter ? element('div', {class: 'filters'},
+      button('Hammasi', () => {
+        catalog.stockFilter = false;
+        loadCatalog('');
+      }, 'chip'),
+      element('span', {class: 'status'}, catalog.stockFilter ? t('Kam qolganlar')
+        : '“' + catalog.search + '” natijalari')) : null,
     small(`${number.format(visible.length)} ${t('ta kitob')}`, 'catalog-count'),
     visible.length ? element('div', {class: 'grid'}, ...visible.map(catalogCard))
       : small('Kitob topilmadi.', 'status'),
   );
   display(body);
+  gallery?.start();
 }
 
 async function loadCatalog(search) {
   const request = ++navigation;
   searchText = search;
+  if (search) catalog.stockFilter = false;
   display(stack(catalogHeading(), catalogSearch(), languageTabs(), small('Kitoblar yuklanmoqda…', 'status')));
   try {
     const result = await api('catalog', {search, language: bookLanguage});
