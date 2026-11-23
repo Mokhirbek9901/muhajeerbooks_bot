@@ -169,6 +169,92 @@ def send_book_detail(chat_id, book):
         raise RuntimeError("bot.py ichidagi send_book_detail bloki topilmadi.")
     source = source.replace(old_detail, new_detail, 1)
 
+    # Bot va Mini App faolligini alohida saqlab, admin ro‘yxatida KST bilan
+    # ko‘rsatamiz. Bu patch katta bot.py faylini qayta yozmasdan qo‘llanadi.
+    main_marker = '''# =========================
+# MAIN
+# =========================
+'''
+    activity_helpers = r'''
+def register_mini_app_user(chat_id, user):
+    key = str(chat_id)
+    old = users.get(key, {})
+    profile = dict(old) if isinstance(old, dict) else {}
+    profile.update({
+        "chat_id": chat_id,
+        "first_name": user.get("first_name", profile.get("first_name", "")),
+        "last_name": user.get("last_name", profile.get("last_name", "")),
+        "username": user.get("username", profile.get("username", "")),
+        "last_mini_app_active": int(time.time()),
+    })
+    users[key] = profile
+    save_users()
+
+
+def _admin_activity_time(value):
+    try:
+        stamp = int(value)
+        if stamp <= 0:
+            raise ValueError
+        return time.strftime("%d.%m.%Y %H:%M", time.gmtime(stamp + 9 * 60 * 60))
+    except (TypeError, ValueError, OverflowError):
+        return "hali kirmagan"
+
+
+def admin_users_texts():
+    load_users()
+    people = [(key, value) for key, value in users.items() if isinstance(value, dict)]
+    people.sort(key=lambda item: max(
+        int(item[1].get("last_bot_active") or item[1].get("last_active") or 0),
+        int(item[1].get("last_mini_app_active") or 0),
+    ), reverse=True)
+    header = (
+        "👥 BOT FOYDALANUVCHILARI\n\n"
+        f"Jami foydalanuvchilar: {len(people)} ta\n"
+        "🕘 Vaqt: Koreya vaqti\n"
+    )
+    if not people:
+        return [header + "\nHozircha foydalanuvchi yo‘q."]
+    chunks = []
+    current = header
+    for number, (user_id, profile) in enumerate(people, 1):
+        full_name = " ".join(part for part in [
+            str(profile.get("first_name", "") or "").strip(),
+            str(profile.get("last_name", "") or "").strip(),
+        ] if part) or "Noma’lum"
+        username = str(profile.get("username", "") or "").strip().lstrip("@")
+        username_text = f"@{username}" if username else "username yo‘q"
+        telegram_id = profile.get("chat_id", user_id)
+        bot_time = _admin_activity_time(
+            profile.get("last_bot_active") or profile.get("last_active"))
+        mini_time = _admin_activity_time(profile.get("last_mini_app_active"))
+        entry = (
+            f"\n{number}. 👤 {full_name}\n"
+            f"   🔗 {username_text}\n"
+            f"   🆔 {telegram_id}\n"
+            f"   🤖 Bot: {bot_time}\n"
+            f"   🛍 Mini App: {mini_time}\n"
+        )
+        if len(current) + len(entry) > 3800:
+            chunks.append(current)
+            current = "👥 DAVOMI\n" + entry
+        else:
+            current += entry
+    if current:
+        chunks.append(current)
+    return chunks
+
+'''
+    if main_marker not in source:
+        raise RuntimeError("bot.py MAIN markeri topilmadi.")
+    source = source.replace(main_marker, activity_helpers + main_marker, 1)
+
+    old_mini_start = 'mini_app.start(api, {"name": BANK_NAME, "number": CARD_NUMBER, "owner": CARD_OWNER}, DATA_DIR)'
+    new_mini_start = 'mini_app.start(api, {"name": BANK_NAME, "number": CARD_NUMBER, "owner": CARD_OWNER}, DATA_DIR, register_mini_app_user)'
+    if old_mini_start not in source:
+        raise RuntimeError("bot.py Mini App start qatori topilmadi.")
+    source = source.replace(old_mini_start, new_mini_start, 1)
+
     namespace = {"__name__": "__main__", "__file__": "bot.py"}
     exec(compile(source, "bot.py", "exec"), namespace, namespace)
 
